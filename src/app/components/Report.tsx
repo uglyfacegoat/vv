@@ -15,6 +15,7 @@ import {
   TrendingDown,
 } from "lucide-react";
 import type { UserRole } from "../auth";
+import { exportReportCsv, getReport } from "../api";
 
 // ── Types matching spec exactly ──
 type Status = "IN_NORM" | "OVERSPEND" | "SAVING" | "NO_PLAN";
@@ -106,7 +107,11 @@ const syntheticItems: ReadonlyArray<{ item_id: number; item_name: string; type: 
   { item_id: 10, item_name: "Транспорт и парк", type: "CAPEX" },
 ];
 
-const syntheticPeriods = Array.from({ length: 12 }, (_, idx) => `2025-${String(idx + 1).padStart(2, "0")}`);
+const syntheticPeriods = Array.from({ length: 24 }, (_, idx) => {
+  const year = 2025 + Math.floor(idx / 12);
+  const month = (idx % 12) + 1;
+  return `${year}-${String(month).padStart(2, "0")}`;
+});
 
 function generateRawRows(): Omit<ReportRow, "delta" | "delta_pct" | "status">[] {
   const rows: Omit<ReportRow, "delta" | "delta_pct" | "status">[] = [];
@@ -172,30 +177,39 @@ interface ReportProps {
   onThresholdChange: (value: number) => void;
   userRole: UserRole;
   allowedCostCenters: string[];
+  externalSearchQuery?: string;
 }
 
-export function Report({ threshold, onThresholdChange, userRole, allowedCostCenters }: ReportProps) {
+export function Report({ threshold, onThresholdChange, userRole, allowedCostCenters, externalSearchQuery = "" }: ReportProps) {
   type AggregateView = "items" | "cc" | "type" | "period";
 
   const [periodFrom, setPeriodFrom] = useState(allPeriods[0]);
   const [periodTo, setPeriodTo] = useState(allPeriods[allPeriods.length - 1]);
   const [selectedCC, setSelectedCC] = useState<string>("ALL");
   const [selectedType, setSelectedType] = useState<"ALL" | "OPEX" | "CAPEX">("ALL");
+  const [selectedStatus, setSelectedStatus] = useState<"ALL" | Status>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortField, setSortField] = useState<string>("period");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [showFilters, setShowFilters] = useState(true);
   const [aggregateView, setAggregateView] = useState<AggregateView>("items");
   const [periodAggregationMode, setPeriodAggregationMode] = useState<"month" | "quarter">("month");
+  const [fullData, setFullData] = useState<ReportRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const managerScoped = userRole === "manager";
   const allowedCostCenterSet = useMemo(() => new Set(allowedCostCenters), [allowedCostCenters]);
+  const allCostCentersFromData = useMemo(
+    () => [...new Set(fullData.map((r) => r.cc_name))].sort(),
+    [fullData],
+  );
   const availableCostCenters = useMemo(
     () => {
-      if (!managerScoped) return allCostCenters;
-      const scoped = allCostCenters.filter((cc) => allowedCostCenterSet.has(cc));
-      return scoped.length > 0 ? scoped : [allCostCenters[0]];
+      if (!managerScoped) return allCostCentersFromData;
+      const scoped = allCostCentersFromData.filter((cc) => allowedCostCenterSet.has(cc));
+      return scoped.length > 0 ? scoped : allCostCentersFromData.slice(0, 1);
     },
-    [allowedCostCenterSet, managerScoped],
+    [allCostCentersFromData, allowedCostCenterSet, managerScoped],
   );
 
   useEffect(() => {
@@ -208,7 +222,34 @@ export function Report({ threshold, onThresholdChange, userRole, allowedCostCent
 
   const thresholdDecimal = threshold / 100;
 
-  const fullData = useMemo(() => buildData(thresholdDecimal), [thresholdDecimal]);
+  useEffect(() => {
+    if (externalSearchQuery) {
+      setSearchQuery(externalSearchQuery);
+      setShowFilters(true);
+    }
+  }, [externalSearchQuery]);
+
+  useEffect(() => {
+    let ignore = false;
+    setLoading(true);
+    setLoadError(null);
+    getReport({ from: periodFrom, to: periodTo, threshold: thresholdDecimal })
+      .then((response) => {
+        if (ignore) return;
+        setFullData(response.rows.map((row, index) => ({ ...row, id: index + 1 })));
+      })
+      .catch((error) => {
+        if (ignore) return;
+        setLoadError(error instanceof Error ? error.message : "Не удалось загрузить отчёт");
+        setFullData([]);
+      })
+      .finally(() => {
+        if (!ignore) setLoading(false);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [periodFrom, periodTo, thresholdDecimal]);
 
   const filteredData = useMemo(() => {
     let data = [...fullData];
@@ -225,6 +266,9 @@ export function Report({ threshold, onThresholdChange, userRole, allowedCostCent
 
     // Type
     if (selectedType !== "ALL") data = data.filter((r) => r.type === selectedType);
+
+    // Status
+    if (selectedStatus !== "ALL") data = data.filter((r) => r.status === selectedStatus);
 
     // Search
     if (searchQuery) {
@@ -258,6 +302,7 @@ export function Report({ threshold, onThresholdChange, userRole, allowedCostCent
     periodTo,
     searchQuery,
     selectedCC,
+    selectedStatus,
     selectedType,
     sortDir,
     sortField,
@@ -392,24 +437,33 @@ export function Report({ threshold, onThresholdChange, userRole, allowedCostCent
   }, [filteredData, periodAggregationMode]);
 
   const handleExport = useCallback(() => {
-    // Build CSV
-    const headers = ["period", "cc_id", "cc_name", "item_id", "item_name", "type", "amount_plan", "amount_fact", "delta", "delta_pct", "status"];
-    const rows = filteredData.map((r) =>
-      [r.period, r.cc_id, r.cc_name, r.item_id, r.item_name, r.type, r.amount_plan, r.amount_fact, r.delta, r.delta_pct ?? "", r.status].join(";")
-    );
-    const csv = [headers.join(";"), ...rows].join("\n");
-    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `plan_fact_report_${periodFrom}_${periodTo}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success("Отчёт успешно экспортирован!");
-  }, [filteredData, periodFrom, periodTo]);
+    const selectedCCRow = fullData.find((row) => row.cc_name === selectedCC);
+    exportReportCsv({
+      from: periodFrom,
+      to: periodTo,
+      cc_id: selectedCC !== "ALL" ? selectedCCRow?.cc_id : null,
+      type: selectedType,
+      status: selectedStatus,
+      threshold: thresholdDecimal,
+    })
+      .then((blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `plan_fact_report_${periodFrom}_${periodTo}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast.success("Отчёт успешно экспортирован!");
+      })
+      .catch((error) => {
+        toast.error("Не удалось экспортировать отчёт", {
+          description: error instanceof Error ? error.message : "Ошибка API",
+        });
+      });
+  }, [fullData, periodFrom, periodTo, selectedCC, selectedStatus, selectedType, thresholdDecimal]);
 
   const defaultCCFilter = managerScoped ? (availableCostCenters[0] ?? "ALL") : "ALL";
-  const isFiltered = selectedCC !== defaultCCFilter || selectedType !== "ALL" || searchQuery || threshold !== 10;
+  const isFiltered = selectedCC !== defaultCCFilter || selectedType !== "ALL" || selectedStatus !== "ALL" || searchQuery || threshold !== 10;
 
   const columns = [
     { key: "period", label: "Период" },
@@ -449,17 +503,24 @@ export function Report({ threshold, onThresholdChange, userRole, allowedCostCent
             transition={{ delay: 0.1 }}
             className="text-muted-foreground mt-1 text-[14px]"
           >
-            {managerScoped
-              ? "Детализация по вашим ЦФО, статьям затрат и периодам"
-              : "Детализация по ЦФО, статьям затрат, периодам"}
+            {loading
+              ? "Загружаем данные из backend..."
+              : managerScoped
+                ? "Детализация по вашим ЦФО, статьям затрат и периодам"
+                : "Детализация по ЦФО, статьям затрат, периодам"}
           </motion.p>
+          {loadError && (
+            <p className="mt-2 inline-flex rounded-lg border border-[#f59e0b]/20 bg-[#f59e0b]/10 px-3 py-1.5 text-[12px] text-[#f59e0b]">
+              {loadError}
+            </p>
+          )}
         </div>
         <motion.button
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.2 }}
           onClick={handleExport}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#6366f1] to-[#8b5cf6] text-white text-[13px] hover:shadow-lg hover:shadow-[#6366f1]/20 transition-all"
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#2563eb] text-white text-[13px] hover:bg-[#1d4ed8] hover:shadow-lg hover:shadow-blue-500/20 transition-all"
           style={{ fontWeight: 500 }}
         >
           <Download className="w-4 h-4" />
@@ -502,7 +563,7 @@ export function Report({ threshold, onThresholdChange, userRole, allowedCostCent
               transition={{ duration: 0.3 }}
               className="overflow-hidden"
             >
-              <div className="px-5 pb-4 pt-1 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              <div className="px-5 pb-4 pt-1 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
                 {/* Period From */}
                 <div>
                   <label className="text-[11px] text-muted-foreground mb-1.5 block" style={{ fontWeight: 500 }}>
@@ -583,6 +644,24 @@ export function Report({ threshold, onThresholdChange, userRole, allowedCostCent
                     className="w-full px-3 py-2 rounded-xl bg-muted/50 border border-border text-[13px] focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
                     placeholder="10"
                   />
+                </div>
+
+                {/* Status */}
+                <div>
+                  <label className="text-[11px] text-muted-foreground mb-1.5 block" style={{ fontWeight: 500 }}>
+                    Отклонение
+                  </label>
+                  <select
+                    value={selectedStatus}
+                    onChange={(e) => setSelectedStatus(e.target.value as "ALL" | Status)}
+                    className="w-full px-3 py-2 rounded-xl bg-muted/50 border border-border text-[13px] focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all appearance-none cursor-pointer"
+                  >
+                    <option value="ALL">Все</option>
+                    <option value="OVERSPEND">Перерасход</option>
+                    <option value="SAVING">Экономия</option>
+                    <option value="IN_NORM">В норме</option>
+                    <option value="NO_PLAN">Нет плана</option>
+                  </select>
                 </div>
 
                 {/* Search */}

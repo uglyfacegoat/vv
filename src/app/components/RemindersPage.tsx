@@ -8,6 +8,8 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
+import { getAccountState, saveAccountState } from "../api";
+import type { UserSession } from "../auth";
 
 type ReminderStatus = "planned" | "done";
 type ReminderPriority = "low" | "medium" | "high";
@@ -55,7 +57,6 @@ interface AssignedTask {
 
 const STORAGE_KEY = "budgetiq.reminders.v1";
 const WORKFLOW_TASKS_STORAGE_KEY = "budgetiq.workflow.tasks.v1";
-const USER_SESSION_KEY = "budgetiq.user.session.v1";
 
 const templates: ReminderTemplate[] = [
   { id: "plan", label: "Импорт Plan", value: "Загрузить plan CSV за текущий период" },
@@ -110,13 +111,15 @@ function isWorkflowStatus(value: unknown): value is WorkflowStatus {
   return value === "planned" || value === "in_progress" || value === "published" || value === "done";
 }
 
-function isUserRole(value: unknown): value is UserRole {
-  return value === "controller" || value === "analyst" || value === "manager";
+interface RemindersPageProps {
+  user: UserSession;
 }
 
-export function RemindersPage() {
+export function RemindersPage({ user }: RemindersPageProps) {
   const [nowTs, setNowTs] = useState(Date.now());
   const [reminders, setReminders] = useState<ReminderItem[]>([]);
+  const [workflowTasks, setWorkflowTasks] = useState<WorkflowTaskRaw[]>([]);
+  const [stateLoaded, setStateLoaded] = useState(false);
 
   const [template, setTemplate] = useState(templates[0].id);
   const [customText, setCustomText] = useState("");
@@ -124,8 +127,8 @@ export function RemindersPage() {
   const [dueDate, setDueDate] = useState(toInputDate(new Date()));
   const [dueTime, setDueTime] = useState("");
   const [priority, setPriority] = useState<ReminderPriority>("medium");
-  const [currentUserName, setCurrentUserName] = useState("Мария Жданова");
-  const [currentUserRole, setCurrentUserRole] = useState<UserRole>("analyst");
+  const currentUserName = user.name;
+  const currentUserRole = user.role as UserRole;
 
   useEffect(() => {
     const interval = window.setInterval(() => setNowTs(Date.now()), 30000);
@@ -133,39 +136,40 @@ export function RemindersPage() {
   }, []);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(USER_SESSION_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as { name?: string; role?: UserRole };
-      if (typeof parsed.name === "string" && parsed.name.trim()) {
-        setCurrentUserName(parsed.name.trim());
-      }
-      if (isUserRole(parsed.role)) {
-        setCurrentUserRole(parsed.role);
-      }
-    } catch {
-      // ignore malformed storage
-    }
+    let ignore = false;
+    Promise.all([
+      getAccountState<ReminderItem[]>(STORAGE_KEY),
+      getAccountState<WorkflowTaskRaw[]>(WORKFLOW_TASKS_STORAGE_KEY),
+    ])
+      .then(([savedReminders, savedTasks]) => {
+        if (ignore) return;
+        if (Array.isArray(savedReminders)) setReminders(savedReminders);
+        if (Array.isArray(savedTasks)) setWorkflowTasks(savedTasks);
+      })
+      .catch((error) => {
+        toast.error("Не удалось загрузить напоминания", {
+          description: error instanceof Error ? error.message : "Проверьте соединение с backend",
+        });
+      })
+      .finally(() => {
+        if (!ignore) setStateLoaded(true);
+      });
+    return () => {
+      ignore = true;
+    };
   }, []);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as ReminderItem[];
-      if (Array.isArray(parsed)) setReminders(parsed);
-    } catch {
-      // ignore malformed storage
-    }
-  }, []);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(reminders));
-    } catch {
-      // ignore storage errors
-    }
-  }, [reminders]);
+    if (!stateLoaded) return;
+    const timeout = window.setTimeout(() => {
+      saveAccountState(STORAGE_KEY, reminders).catch((error) => {
+        toast.error("Не удалось сохранить напоминания", {
+          description: error instanceof Error ? error.message : "Проверьте соединение с backend",
+        });
+      });
+    }, 250);
+    return () => window.clearTimeout(timeout);
+  }, [reminders, stateLoaded]);
 
   const todayStr = useMemo(() => toInputDate(new Date(nowTs)), [nowTs]);
 
@@ -236,13 +240,7 @@ export function RemindersPage() {
       ],
     };
 
-    try {
-      const raw = localStorage.getItem(WORKFLOW_TASKS_STORAGE_KEY);
-      if (!raw) return fallbackByRole[currentUserRole];
-      const parsed = JSON.parse(raw) as WorkflowTaskRaw[];
-      if (!Array.isArray(parsed)) return fallbackByRole[currentUserRole];
-
-      const normalized = parsed
+    const normalized = workflowTasks
         .filter((task) => {
           if (!task || typeof task !== "object") return false;
           const byAssignee = typeof task.assignee === "string" && task.assignee.trim().toLowerCase() === currentUserName.trim().toLowerCase();
@@ -265,10 +263,7 @@ export function RemindersPage() {
         .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
 
       return normalized.length > 0 ? normalized : fallbackByRole[currentUserRole];
-    } catch {
-      return fallbackByRole[currentUserRole];
-    }
-  }, [currentUserName, currentUserRole, todayStr]);
+  }, [currentUserName, currentUserRole, todayStr, workflowTasks]);
 
   const activeTemplate = templates.find((t) => t.id === template) ?? templates[0];
 
@@ -573,7 +568,7 @@ export function RemindersPage() {
 
           <button
             onClick={handleAddReminder}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#6366f1] to-[#8b5cf6] text-white text-[13px] hover:shadow-lg hover:shadow-[#6366f1]/20 transition-all"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#2563eb] text-white text-[13px] hover:bg-[#1d4ed8] hover:shadow-lg hover:shadow-blue-500/20 transition-all"
             style={{ fontWeight: 500 }}
           >
             <Plus className="w-4 h-4" />

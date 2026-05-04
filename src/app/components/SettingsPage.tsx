@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { toast } from "sonner";
 import {
@@ -21,6 +21,19 @@ import {
   X,
   Check,
 } from "lucide-react";
+import {
+  createCostCenter,
+  createItem,
+  deleteCostCenter,
+  deleteItem,
+  getCostCenters,
+  getItems,
+  saveThresholdSetting,
+  updateAccountSettings,
+  updateCostCenter,
+  updateItem,
+  type UserSettings,
+} from "../api";
 
 interface SettingSection {
   id: string;
@@ -76,18 +89,21 @@ const initialExpenseItems: ExpenseItem[] = [
 interface SettingsPageProps {
   threshold: number;
   onThresholdChange: (value: number) => void;
+  accountSettings: UserSettings;
+  onAccountSettingsChange: (settings: UserSettings) => void;
 }
 
-export function SettingsPage({ threshold, onThresholdChange }: SettingsPageProps) {
+export function SettingsPage({ threshold, onThresholdChange, accountSettings, onAccountSettingsChange }: SettingsPageProps) {
   const [activeSection, setActiveSection] = useState("thresholds");
-  const [overspendThreshold, setOverspendThreshold] = useState(15);
-  const [savingThreshold, setSavingThreshold] = useState(15);
-  const [numberFormat, setNumberFormat] = useState<"ru" | "en">("ru");
-  const [currency, setCurrency] = useState("RUB");
-  const [notifyImport, setNotifyImport] = useState(true);
-  const [notifyOverspend, setNotifyOverspend] = useState(true);
-  const [notifyWeekly, setNotifyWeekly] = useState(false);
-  const [emailNotify, setEmailNotify] = useState(true);
+  const [overspendThreshold, setOverspendThreshold] = useState(accountSettings.overspend_threshold);
+  const [savingThreshold, setSavingThreshold] = useState(accountSettings.saving_threshold);
+  const [numberFormat, setNumberFormat] = useState<"ru" | "en">(accountSettings.number_format);
+  const [currency, setCurrency] = useState(accountSettings.currency);
+  const [notifyImport, setNotifyImport] = useState(accountSettings.notify_import);
+  const [notifyOverspend, setNotifyOverspend] = useState(accountSettings.notify_overspend);
+  const [notifyWeekly, setNotifyWeekly] = useState(accountSettings.notify_weekly);
+  const [emailNotify, setEmailNotify] = useState(accountSettings.email_notify);
+  const [saving, setSaving] = useState(false);
   const [showConfirmClear, setShowConfirmClear] = useState(false);
   const [costCenters, setCostCenters] = useState<CostCenterItem[]>(initialCostCenters);
   const [expenseItems, setExpenseItems] = useState<ExpenseItem[]>(initialExpenseItems);
@@ -97,10 +113,56 @@ export function SettingsPage({ threshold, onThresholdChange }: SettingsPageProps
   const [editingExpenseItemId, setEditingExpenseItemId] = useState<string | null>(null);
   const [costCenterDraft, setCostCenterDraft] = useState({ code: "", name: "", owner: "", active: true });
   const [expenseItemDraft, setExpenseItemDraft] = useState({ code: "", name: "", type: "OPEX" as "OPEX" | "CAPEX", active: true });
+  const [refsLoading, setRefsLoading] = useState(false);
 
   const makeId = (prefix: string) => `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
-  const handleAddCostCenter = () => {
+  useEffect(() => {
+    setOverspendThreshold(accountSettings.overspend_threshold);
+    setSavingThreshold(accountSettings.saving_threshold);
+    setNumberFormat(accountSettings.number_format);
+    setCurrency(accountSettings.currency);
+    setNotifyImport(accountSettings.notify_import);
+    setNotifyOverspend(accountSettings.notify_overspend);
+    setNotifyWeekly(accountSettings.notify_weekly);
+    setEmailNotify(accountSettings.email_notify);
+  }, [accountSettings]);
+
+  useEffect(() => {
+    let ignore = false;
+    setRefsLoading(true);
+    Promise.all([getCostCenters(), getItems()])
+      .then(([ccs, items]) => {
+        if (ignore) return;
+        setCostCenters(ccs.map((cc) => ({
+          id: String(cc.cc_id),
+          code: cc.code,
+          name: cc.name,
+          owner: cc.owner,
+          active: cc.active,
+        })));
+        setExpenseItems(items.map((item) => ({
+          id: String(item.item_id),
+          code: item.code,
+          name: item.name,
+          type: item.type,
+          active: item.active,
+        })));
+      })
+      .catch((error) => {
+        toast.error("Не удалось загрузить справочники", {
+          description: error instanceof Error ? error.message : "Проверьте backend",
+        });
+      })
+      .finally(() => {
+        if (!ignore) setRefsLoading(false);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  const handleAddCostCenter = async () => {
     const code = newCostCenter.code.trim().toUpperCase();
     const name = newCostCenter.name.trim();
     const owner = newCostCenter.owner.trim();
@@ -112,12 +174,23 @@ export function SettingsPage({ threshold, onThresholdChange }: SettingsPageProps
       toast.error("ЦФО с таким кодом уже существует");
       return;
     }
-    setCostCenters((prev) => [...prev, { id: makeId("cc"), code, name, owner, active: true }]);
-    setNewCostCenter({ code: "", name: "", owner: "" });
-    toast.success("ЦФО добавлен");
+    try {
+      const created = await createCostCenter({ code, name, owner, active: true });
+      setCostCenters((prev) => [...prev, {
+        id: String(created.cc_id),
+        code: created.code,
+        name: created.name,
+        owner: created.owner,
+        active: created.active,
+      }]);
+      setNewCostCenter({ code: "", name: "", owner: "" });
+      toast.success("ЦФО добавлен");
+    } catch (error) {
+      toast.error("Не удалось добавить ЦФО", { description: error instanceof Error ? error.message : "Ошибка backend" });
+    }
   };
 
-  const handleAddExpenseItem = () => {
+  const handleAddExpenseItem = async () => {
     const code = newExpenseItem.code.trim().toUpperCase();
     const name = newExpenseItem.name.trim();
     if (!code || !name) {
@@ -128,9 +201,20 @@ export function SettingsPage({ threshold, onThresholdChange }: SettingsPageProps
       toast.error("Статья с таким кодом уже существует");
       return;
     }
-    setExpenseItems((prev) => [...prev, { id: makeId("item"), code, name, type: newExpenseItem.type, active: true }]);
-    setNewExpenseItem({ code: "", name: "", type: "OPEX" });
-    toast.success("Статья добавлена");
+    try {
+      const created = await createItem({ code, name, type: newExpenseItem.type, active: true });
+      setExpenseItems((prev) => [...prev, {
+        id: String(created.item_id),
+        code: created.code,
+        name: created.name,
+        type: created.type,
+        active: created.active,
+      }]);
+      setNewExpenseItem({ code: "", name: "", type: "OPEX" });
+      toast.success("Статья добавлена");
+    } catch (error) {
+      toast.error("Не удалось добавить статью", { description: error instanceof Error ? error.message : "Ошибка backend" });
+    }
   };
 
   const startEditCostCenter = (cc: CostCenterItem) => {
@@ -138,7 +222,7 @@ export function SettingsPage({ threshold, onThresholdChange }: SettingsPageProps
     setCostCenterDraft({ code: cc.code, name: cc.name, owner: cc.owner, active: cc.active });
   };
 
-  const saveCostCenterEdit = () => {
+  const saveCostCenterEdit = async () => {
     if (!editingCostCenterId) return;
     const code = costCenterDraft.code.trim().toUpperCase();
     const name = costCenterDraft.name.trim();
@@ -151,15 +235,20 @@ export function SettingsPage({ threshold, onThresholdChange }: SettingsPageProps
       toast.error("ЦФО с таким кодом уже существует");
       return;
     }
-    setCostCenters((prev) =>
-      prev.map((cc) =>
-        cc.id === editingCostCenterId
-          ? { ...cc, code, name, owner, active: costCenterDraft.active }
-          : cc,
-      ),
-    );
-    setEditingCostCenterId(null);
-    toast.success("ЦФО обновлен");
+    try {
+      const updated = await updateCostCenter(Number(editingCostCenterId), { code, name, owner, active: costCenterDraft.active });
+      setCostCenters((prev) =>
+        prev.map((cc) =>
+          cc.id === editingCostCenterId
+            ? { id: String(updated.cc_id), code: updated.code, name: updated.name, owner: updated.owner, active: updated.active }
+            : cc,
+        ),
+      );
+      setEditingCostCenterId(null);
+      toast.success("ЦФО обновлен");
+    } catch (error) {
+      toast.error("Не удалось обновить ЦФО", { description: error instanceof Error ? error.message : "Ошибка backend" });
+    }
   };
 
   const startEditExpenseItem = (item: ExpenseItem) => {
@@ -167,7 +256,7 @@ export function SettingsPage({ threshold, onThresholdChange }: SettingsPageProps
     setExpenseItemDraft({ code: item.code, name: item.name, type: item.type, active: item.active });
   };
 
-  const saveExpenseItemEdit = () => {
+  const saveExpenseItemEdit = async () => {
     if (!editingExpenseItemId) return;
     const code = expenseItemDraft.code.trim().toUpperCase();
     const name = expenseItemDraft.name.trim();
@@ -179,21 +268,108 @@ export function SettingsPage({ threshold, onThresholdChange }: SettingsPageProps
       toast.error("Статья с таким кодом уже существует");
       return;
     }
-    setExpenseItems((prev) =>
-      prev.map((item) =>
-        item.id === editingExpenseItemId
-          ? { ...item, code, name, type: expenseItemDraft.type, active: expenseItemDraft.active }
-          : item,
-      ),
-    );
-    setEditingExpenseItemId(null);
-    toast.success("Статья обновлена");
+    try {
+      const updated = await updateItem(Number(editingExpenseItemId), { code, name, type: expenseItemDraft.type, active: expenseItemDraft.active });
+      setExpenseItems((prev) =>
+        prev.map((item) =>
+          item.id === editingExpenseItemId
+            ? { id: String(updated.item_id), code: updated.code, name: updated.name, type: updated.type, active: updated.active }
+            : item,
+        ),
+      );
+      setEditingExpenseItemId(null);
+      toast.success("Статья обновлена");
+    } catch (error) {
+      toast.error("Не удалось обновить статью", { description: error instanceof Error ? error.message : "Ошибка backend" });
+    }
   };
 
-  const handleSave = () => {
-    toast.success("Настройки сохранены", {
-      description: `Порог: +-${threshold}%, формат: ${numberFormat === "ru" ? "1 234,56" : "1,234.56"}`,
-    });
+  const toggleCostCenterActive = async (cc: CostCenterItem) => {
+    try {
+      const updated = await updateCostCenter(Number(cc.id), {
+        code: cc.code,
+        name: cc.name,
+        owner: cc.owner,
+        active: !cc.active,
+      });
+      setCostCenters((prev) =>
+        prev.map((row) => (row.id === cc.id ? { ...row, active: updated.active } : row)),
+      );
+    } catch (error) {
+      toast.error("Не удалось изменить статус ЦФО", { description: error instanceof Error ? error.message : "Ошибка backend" });
+    }
+  };
+
+  const removeCostCenter = async (cc: CostCenterItem) => {
+    try {
+      await deleteCostCenter(Number(cc.id));
+      setCostCenters((prev) => prev.filter((row) => row.id !== cc.id));
+      if (editingCostCenterId === cc.id) setEditingCostCenterId(null);
+      toast.success("ЦФО удален");
+    } catch (error) {
+      toast.error("Не удалось удалить ЦФО", { description: error instanceof Error ? error.message : "Ошибка backend" });
+    }
+  };
+
+  const toggleExpenseItemActive = async (item: ExpenseItem) => {
+    try {
+      const updated = await updateItem(Number(item.id), {
+        code: item.code,
+        name: item.name,
+        type: item.type,
+        active: !item.active,
+      });
+      setExpenseItems((prev) =>
+        prev.map((row) => (row.id === item.id ? { ...row, active: updated.active } : row)),
+      );
+    } catch (error) {
+      toast.error("Не удалось изменить статус статьи", { description: error instanceof Error ? error.message : "Ошибка backend" });
+    }
+  };
+
+  const removeExpenseItem = async (item: ExpenseItem) => {
+    try {
+      await deleteItem(Number(item.id));
+      setExpenseItems((prev) => prev.filter((row) => row.id !== item.id));
+      if (editingExpenseItemId === item.id) setEditingExpenseItemId(null);
+      toast.success("Статья удалена");
+    } catch (error) {
+      toast.error("Не удалось удалить статью", { description: error instanceof Error ? error.message : "Ошибка backend" });
+    }
+  };
+
+  const collectSettings = (): UserSettings => ({
+    ...accountSettings,
+    threshold,
+    overspend_threshold: Math.min(100, Math.max(1, overspendThreshold || 1)),
+    saving_threshold: Math.min(100, Math.max(1, savingThreshold || 1)),
+    number_format: numberFormat,
+    currency,
+    notify_import: notifyImport,
+    notify_overspend: notifyOverspend,
+    notify_weekly: notifyWeekly,
+    email_notify: emailNotify,
+  });
+
+  const handleSave = async () => {
+    const settings = collectSettings();
+    setSaving(true);
+    try {
+      const [account] = await Promise.all([
+        updateAccountSettings(settings),
+        saveThresholdSetting(settings.threshold),
+      ]);
+      onAccountSettingsChange(account.user.settings ?? settings);
+      toast.success("Настройки сохранены", {
+        description: `Порог: +-${settings.threshold}%, формат: ${numberFormat === "ru" ? "1 234,56" : "1,234.56"}`,
+      });
+    } catch (error) {
+      toast.error("Не удалось сохранить настройки", {
+        description: error instanceof Error ? error.message : "Проверьте соединение с backend",
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleClearData = () => {
@@ -212,7 +388,8 @@ export function SettingsPage({ threshold, onThresholdChange }: SettingsPageProps
     setNotifyImport(true);
     setNotifyOverspend(true);
     setNotifyWeekly(false);
-    toast.info("Настройки сброшены", { description: "Все значения вернулись к значениям по умолчанию" });
+    setEmailNotify(true);
+    toast.info("Настройки сброшены", { description: "Нажмите сохранить, чтобы записать значения в аккаунт" });
   };
 
   return (
@@ -253,11 +430,12 @@ export function SettingsPage({ threshold, onThresholdChange }: SettingsPageProps
             animate={{ opacity: 1 }}
             transition={{ delay: 0.05 }}
             onClick={handleSave}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#6366f1] to-[#8b5cf6] text-white text-[13px] hover:shadow-lg hover:shadow-[#6366f1]/20 transition-all"
+            disabled={saving}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#2563eb] text-white text-[13px] hover:bg-[#1d4ed8] hover:shadow-lg hover:shadow-blue-500/20 transition-all"
             style={{ fontWeight: 500 }}
           >
             <Save className="w-4 h-4" />
-            Сохранить
+            {saving ? "Сохраняем..." : "Сохранить"}
           </motion.button>
         </div>
       </div>
@@ -279,7 +457,7 @@ export function SettingsPage({ threshold, onThresholdChange }: SettingsPageProps
               onClick={() => setActiveSection(s.id)}
               className={`flex items-center gap-3 w-full px-4 py-3 rounded-xl text-left transition-all duration-200 ${
                 activeSection === s.id
-                  ? "bg-gradient-to-r from-[#6366f1]/10 to-[#8b5cf6]/10 border border-[#6366f1]/20"
+                  ? "bg-[#eef2ff] border border-[#bfdbfe] dark:bg-[#1e293b] dark:border-[#334155]"
                   : "hover:bg-muted border border-transparent"
               }`}
             >
@@ -541,7 +719,7 @@ export function SettingsPage({ threshold, onThresholdChange }: SettingsPageProps
                 <div className="flex items-start gap-2 rounded-xl bg-[#6366f1]/5 border border-[#6366f1]/10 px-4 py-3">
                   <Info className="w-4 h-4 text-[#6366f1] mt-0.5 shrink-0" />
                   <p className="text-[12px] text-muted-foreground">
-                    Управление пользователями доступно после подключения бэкенда Go + JWT Auth
+                    Роли назначаются при регистрации и проверяются backend JWT-слоем.
                   </p>
                 </div>
               </div>
@@ -562,7 +740,7 @@ export function SettingsPage({ threshold, onThresholdChange }: SettingsPageProps
                 <div className="flex items-start gap-2 rounded-xl bg-[#6366f1]/5 border border-[#6366f1]/10 px-4 py-3">
                   <Info className="w-4 h-4 text-[#6366f1] mt-0.5 shrink-0" />
                   <p className="text-[12px] text-muted-foreground">
-                    Изменения работают как фронтовый CRUD-слой и готовы к подключению backend API.
+                    Основное наполнение справочников выполняется через CSV-импорт и сохраняется в PostgreSQL.
                   </p>
                 </div>
 
@@ -595,7 +773,7 @@ export function SettingsPage({ threshold, onThresholdChange }: SettingsPageProps
                     />
                     <button
                       onClick={handleAddCostCenter}
-                      className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-[#6366f1] to-[#8b5cf6] text-white text-[12px] hover:shadow-lg hover:shadow-[#6366f1]/20 transition-all"
+                      className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-[#2563eb] text-white text-[12px] hover:bg-[#1d4ed8] hover:shadow-lg hover:shadow-blue-500/20 transition-all"
                       style={{ fontWeight: 500 }}
                     >
                       <Plus className="w-3.5 h-3.5" />
@@ -659,9 +837,7 @@ export function SettingsPage({ threshold, onThresholdChange }: SettingsPageProps
                                       setCostCenterDraft((prev) => ({ ...prev, active: !prev.active }));
                                       return;
                                     }
-                                    setCostCenters((prev) =>
-                                      prev.map((row) => (row.id === cc.id ? { ...row, active: !row.active } : row)),
-                                    );
+                                    void toggleCostCenterActive(cc);
                                   }}
                                   className={`px-2 py-1 rounded-md text-[11px] ${
                                     (isEditing ? costCenterDraft.active : cc.active)
@@ -702,11 +878,7 @@ export function SettingsPage({ threshold, onThresholdChange }: SettingsPageProps
                                         <Pencil className="w-3.5 h-3.5" />
                                       </button>
                                       <button
-                                        onClick={() => {
-                                          setCostCenters((prev) => prev.filter((row) => row.id !== cc.id));
-                                          if (editingCostCenterId === cc.id) setEditingCostCenterId(null);
-                                          toast.success("ЦФО удален");
-                                        }}
+                                        onClick={() => void removeCostCenter(cc)}
                                         className="p-1.5 rounded-md bg-[#ef4444]/10 text-[#ef4444] hover:bg-[#ef4444]/20 transition-colors"
                                         title="Удалить"
                                       >
@@ -755,7 +927,7 @@ export function SettingsPage({ threshold, onThresholdChange }: SettingsPageProps
                     </select>
                     <button
                       onClick={handleAddExpenseItem}
-                      className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-[#6366f1] to-[#8b5cf6] text-white text-[12px] hover:shadow-lg hover:shadow-[#6366f1]/20 transition-all"
+                      className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-[#2563eb] text-white text-[12px] hover:bg-[#1d4ed8] hover:shadow-lg hover:shadow-blue-500/20 transition-all"
                       style={{ fontWeight: 500 }}
                     >
                       <Plus className="w-3.5 h-3.5" />
@@ -829,9 +1001,7 @@ export function SettingsPage({ threshold, onThresholdChange }: SettingsPageProps
                                       setExpenseItemDraft((prev) => ({ ...prev, active: !prev.active }));
                                       return;
                                     }
-                                    setExpenseItems((prev) =>
-                                      prev.map((row) => (row.id === item.id ? { ...row, active: !row.active } : row)),
-                                    );
+                                    void toggleExpenseItemActive(item);
                                   }}
                                   className={`px-2 py-1 rounded-md text-[11px] ${
                                     (isEditing ? expenseItemDraft.active : item.active)
@@ -872,11 +1042,7 @@ export function SettingsPage({ threshold, onThresholdChange }: SettingsPageProps
                                         <Pencil className="w-3.5 h-3.5" />
                                       </button>
                                       <button
-                                        onClick={() => {
-                                          setExpenseItems((prev) => prev.filter((row) => row.id !== item.id));
-                                          if (editingExpenseItemId === item.id) setEditingExpenseItemId(null);
-                                          toast.success("Статья удалена");
-                                        }}
+                                        onClick={() => void removeExpenseItem(item)}
                                         className="p-1.5 rounded-md bg-[#ef4444]/10 text-[#ef4444] hover:bg-[#ef4444]/20 transition-colors"
                                         title="Удалить"
                                       >

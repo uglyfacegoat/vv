@@ -102,7 +102,7 @@ export function HeroIntroSection({ onOpenAuth }: HeroIntroSectionProps) {
             >
               <button
                 onClick={() => onOpenAuth?.("register")}
-                className="group inline-flex h-[56px] items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-indigo-500 via-violet-600 to-cyan-500 px-6 text-[0.9rem] text-white shadow-[0_14px_40px_rgba(79,70,229,0.32)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_18px_46px_rgba(34,211,238,0.2)]"
+                className="group inline-flex h-[56px] items-center justify-center gap-2 rounded-2xl bg-[#2563eb] px-6 text-[0.9rem] text-white shadow-[0_14px_40px_rgba(37,99,235,0.24)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#1d4ed8] hover:shadow-[0_18px_46px_rgba(37,99,235,0.28)]"
                 style={{ fontFamily: "Inter, sans-serif", fontWeight: 600 }}
               >
                 <span className="whitespace-nowrap">Открыть проект</span>

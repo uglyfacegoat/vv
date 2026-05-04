@@ -6,6 +6,8 @@ export interface UserSession {
   role: UserRole;
   position: string;
   department: string;
+  phone?: string;
+  avatarUrl?: string;
   allowedCostCenters: string[];
 }
 
@@ -16,8 +18,7 @@ export interface RolePermissions {
   scope: "all" | "assigned";
 }
 
-export const AUTH_SESSION_KEY = "budgetiq.authenticated";
-export const USER_SESSION_KEY = "budgetiq.user.session.v1";
+export const API_TOKEN_KEY = "budgetiq.api.token";
 
 export const ALL_COST_CENTERS = [
   "Производство",
@@ -160,46 +161,34 @@ export function sanitizeSession(input: UserSession): UserSession {
     department:
       input.department.trim()
       || (role === "manager" ? allowedCostCenters[0] : roleDefaults[role].department),
+    phone: input.phone,
+    avatarUrl: input.avatarUrl,
     allowedCostCenters,
   };
 }
 
-export function saveStoredUser(user: UserSession) {
-  const normalized = sanitizeSession(user);
+export function saveApiToken(token: string) {
   try {
-    localStorage.setItem(USER_SESSION_KEY, JSON.stringify(normalized));
-    localStorage.setItem(AUTH_SESSION_KEY, "1");
+    localStorage.setItem(API_TOKEN_KEY, token);
   } catch {
     // ignore storage errors
+  }
+}
+
+export function hasApiToken() {
+  try {
+    return Boolean(localStorage.getItem(API_TOKEN_KEY));
+  } catch {
+    return false;
   }
 }
 
 export function clearStoredUser() {
   try {
-    localStorage.removeItem(USER_SESSION_KEY);
-    localStorage.removeItem(AUTH_SESSION_KEY);
+    localStorage.removeItem("budgetiq.user.session.v1");
+    localStorage.removeItem("budgetiq.authenticated");
+    localStorage.removeItem(API_TOKEN_KEY);
   } catch {
     // ignore storage errors
   }
-}
-
-export function loadStoredUser(): UserSession | null {
-  try {
-    const raw = localStorage.getItem(USER_SESSION_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as unknown;
-      if (isUserSession(parsed)) return sanitizeSession(parsed);
-    }
-
-    if (localStorage.getItem(AUTH_SESSION_KEY) === "1") {
-      return buildMockUserSession({
-        email: "a.kotov@company.ru",
-        role: "controller",
-        name: "Алексей Котов",
-      });
-    }
-  } catch {
-    // ignore malformed storage
-  }
-  return null;
 }

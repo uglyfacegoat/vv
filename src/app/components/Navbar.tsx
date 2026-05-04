@@ -1,7 +1,8 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState, type MouseEvent } from "react";
-import { ArrowUpRight, BarChart3, Menu, Moon, Sun, X } from "lucide-react";
+import { ArrowUpRight, Menu, Moon, Sun, X } from "lucide-react";
 import { useTheme } from "./ThemeProvider";
+import { BudgetIQMark } from "./brand/BudgetIQMark";
 
 interface NavbarProps {
   onOpenAuth?: (mode: "login" | "register") => void;
@@ -18,7 +19,6 @@ const navItems = [
 
 export function Navbar({ onOpenAuth, showAfterId, hideAtId }: NavbarProps) {
   const [scrolled, setScrolled] = useState(false);
-  const [visible, setVisible] = useState(() => !showAfterId);
   const [mobileOpen, setMobileOpen] = useState(false);
   const { dark, toggle } = useTheme();
 
@@ -32,26 +32,6 @@ export function Navbar({ onOpenAuth, showAfterId, hideAtId }: NavbarProps) {
       window.requestAnimationFrame(() => {
         const next = window.scrollY > 24;
         setScrolled((prev) => (prev === next ? prev : next));
-        let nextVisible = true;
-        const getThresholdTop = (id: string) => {
-          const target = document.getElementById(id);
-          if (!target) return null;
-          return target.getBoundingClientRect().top + window.scrollY;
-        };
-
-        if (showAfterId) {
-          const targetTop = getThresholdTop(showAfterId);
-          const threshold = targetTop !== null ? Math.max(0, targetTop - 88) : window.innerHeight - 88;
-          nextVisible = window.scrollY >= threshold;
-        }
-        if (hideAtId) {
-          const targetTop = getThresholdTop(hideAtId);
-          if (targetTop !== null) {
-            const hideThreshold = Math.max(0, targetTop - 88);
-            nextVisible = nextVisible && window.scrollY < hideThreshold;
-          }
-        }
-        setVisible((prev) => (prev === nextVisible ? prev : nextVisible));
         ticking = false;
       });
     };
@@ -98,9 +78,7 @@ export function Navbar({ onOpenAuth, showAfterId, hideAtId }: NavbarProps) {
 
   return (
     <div
-      className={`fixed inset-x-0 top-0 z-[100] px-4 pt-4 transition-all duration-500 md:px-6 ${
-        visible ? "pointer-events-auto translate-y-0 opacity-100" : "pointer-events-none -translate-y-6 opacity-0"
-      }`}
+      className="fixed inset-x-0 top-0 z-[100] px-4 pt-4 transition-all duration-500 md:px-6"
     >
       <motion.nav
         initial={{ y: -96, opacity: 0 }}
@@ -126,17 +104,7 @@ export function Navbar({ onOpenAuth, showAfterId, hideAtId }: NavbarProps) {
 
         <div className="relative flex h-[72px] items-center justify-between gap-3 px-4 sm:px-5">
           <a href="#home" onClick={handleNavigate("#home")} className="flex min-w-0 items-center gap-3">
-            <div
-              className={`flex h-11 w-11 items-center justify-center rounded-2xl border ${
-                dark
-                  ? "border-white/10 bg-white/[0.04] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
-                  : "border-white/80 bg-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
-              }`}
-            >
-              <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-blue-500 shadow-[0_8px_24px_rgba(79,70,229,0.35)]">
-                <BarChart3 className="h-[18px] w-[18px] text-white" />
-              </div>
-            </div>
+            <BudgetIQMark size={34} />
             <div className="min-w-0">
               <div
                 className={`truncate text-[1rem] tracking-tight ${
@@ -214,7 +182,7 @@ export function Navbar({ onOpenAuth, showAfterId, hideAtId }: NavbarProps) {
 
             <button
               onClick={() => handleAuth("register")}
-              className="group inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-violet-600 via-indigo-500 to-blue-500 px-5 py-2.5 text-[0.92rem] text-white shadow-[0_14px_34px_rgba(79,70,229,0.35)] transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_18px_44px_rgba(37,99,235,0.35)]"
+              className="group inline-flex items-center gap-2 rounded-full bg-[#2563eb] px-5 py-2.5 text-[0.92rem] text-white shadow-[0_14px_34px_rgba(37,99,235,0.24)] transition-all duration-300 hover:scale-[1.02] hover:bg-[#1d4ed8] hover:shadow-[0_18px_44px_rgba(37,99,235,0.28)]"
               style={{ fontWeight: 600 }}
             >
               Открыть проект
@@ -300,7 +268,7 @@ export function Navbar({ onOpenAuth, showAfterId, hideAtId }: NavbarProps) {
                 </button>
                 <button
                   onClick={() => handleAuth("register")}
-                  className="inline-flex items-center justify-between rounded-2xl bg-gradient-to-r from-violet-600 via-indigo-500 to-blue-500 px-4 py-3 text-[0.95rem] text-white shadow-[0_14px_34px_rgba(79,70,229,0.3)]"
+                  className="inline-flex items-center justify-between rounded-2xl bg-[#2563eb] px-4 py-3 text-[0.95rem] text-white shadow-[0_14px_34px_rgba(37,99,235,0.24)]"
                   style={{ fontWeight: 600 }}
                 >
                   Открыть проект

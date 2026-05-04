@@ -25,6 +25,7 @@ import {
   ReferenceLine,
 } from "recharts";
 import type { UserRole } from "../auth";
+import { getReport, type ReportRow } from "../api";
 
 // ── Mock data matching spec: periods YYYY-MM, real ЦФО names, OPEX/CAPEX items ──
 
@@ -289,8 +290,118 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
   const [pinnedPeriod, setPinnedPeriod] = useState<string | null>(null);
   const [pinnedCoord, setPinnedCoord] = useState<{ x: number; y: number } | null>(null);
   const [pinnedPayload, setPinnedPayload] = useState<any[] | null>(null);
+  const [reportRows, setReportRows] = useState<ReportRow[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const managerScoped = userRole === "manager";
   const allowedCostCenterSet = useMemo(() => new Set(allowedCostCenters), [allowedCostCenters]);
+  const scopedRows = useMemo(() => {
+    if (!managerScoped) return reportRows;
+    return reportRows.filter((row) => allowedCostCenterSet.has(row.cc_name));
+  }, [allowedCostCenterSet, managerScoped, reportRows]);
+  const costCenters = useMemo(() => {
+    const unique = new Map<number, { cc_id: number; name: string }>();
+    scopedRows.forEach((row) => unique.set(row.cc_id, { cc_id: row.cc_id, name: row.cc_name }));
+    return Array.from(unique.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [scopedRows]);
+  const items = useMemo(() => {
+    const unique = new Map<number, { item_id: number; name: string; type: string }>();
+    scopedRows.forEach((row) => unique.set(row.item_id, { item_id: row.item_id, name: row.item_name, type: row.type }));
+    return Array.from(unique.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [scopedRows]);
+  const chartData = useMemo(() => {
+    const grouped = new Map<string, { period: string; plan: number; fact: number }>();
+    scopedRows.forEach((row) => {
+      const entry = grouped.get(row.period) ?? { period: row.period, plan: 0, fact: 0 };
+      entry.plan += row.amount_plan;
+      entry.fact += row.amount_fact;
+      grouped.set(row.period, entry);
+    });
+    return Array.from(grouped.values()).sort((a, b) => a.period.localeCompare(b.period));
+  }, [scopedRows]);
+  const periodBreakdown = useMemo(() => {
+    const grouped: Record<string, { cc: string; plan: number; fact: number }[]> = {};
+    chartData.forEach((entry) => {
+      const byCC = new Map<string, { cc: string; plan: number; fact: number }>();
+      scopedRows.filter((row) => row.period === entry.period).forEach((row) => {
+        const cc = byCC.get(row.cc_name) ?? { cc: row.cc_name, plan: 0, fact: 0 };
+        cc.plan += row.amount_plan;
+        cc.fact += row.amount_fact;
+        byCC.set(row.cc_name, cc);
+      });
+      grouped[entry.period] = Array.from(byCC.values()).sort((a, b) => a.cc.localeCompare(b.cc));
+    });
+    return grouped;
+  }, [chartData, scopedRows]);
+  const heatmapRaw = useMemo(() => {
+    return costCenters.map((cc) =>
+      items.map((item) => {
+        const rows = scopedRows.filter((row) => row.cc_id === cc.cc_id && row.item_id === item.item_id && row.delta_pct !== null);
+        if (rows.length === 0) return 0;
+        const avg = rows.reduce((sum, row) => sum + (row.delta_pct ?? 0), 0) / rows.length;
+        return Number((avg * 100).toFixed(1));
+      })
+    );
+  }, [costCenters, items, scopedRows]);
+  const kpis = useMemo(() => {
+    const withPlan = scopedRows.filter((row) => row.status !== "NO_PLAN");
+    const inNorm = withPlan.filter((row) => row.status === "IN_NORM").length;
+    const meanAbs = withPlan.length > 0
+      ? withPlan.reduce((sum, row) => sum + Math.abs(row.delta_pct ?? 0), 0) / withPlan.length * 100
+      : 0;
+    const overspend = scopedRows.filter((row) => row.status === "OVERSPEND").length;
+    const saving = scopedRows.filter((row) => row.delta < 0).reduce((sum, row) => sum + Math.abs(row.delta), 0);
+    const share = withPlan.length > 0 ? inNorm / withPlan.length : 0;
+    return [
+      {
+        title: "Доля строк «В норме»",
+        subtitle: "",
+        value: `${(share * 100).toFixed(1)}%`,
+        detail: `${inNorm} из ${withPlan.length} строк`,
+        change: "live",
+        positive: true,
+        icon: CheckCircle2,
+        gradient: "from-[#10b981]/10 to-[#06b6d4]/10",
+        iconColor: "#10b981",
+        border: "border-[#10b981]/20",
+      },
+      {
+        title: "Среднее отклонение",
+        subtitle: "",
+        value: `${meanAbs.toFixed(1)}%`,
+        detail: "Среднее абсолютное отклонение",
+        change: "live",
+        positive: true,
+        icon: Activity,
+        gradient: "from-[#6366f1]/10 to-[#8b5cf6]/10",
+        iconColor: "#6366f1",
+        border: "border-[#6366f1]/20",
+      },
+      {
+        title: "Превышения бюджета",
+        subtitle: "",
+        value: String(overspend),
+        detail: "Строки со статусом OVERSPEND",
+        change: "live",
+        positive: overspend === 0,
+        icon: AlertTriangle,
+        gradient: "from-[#f59e0b]/10 to-[#ef4444]/10",
+        iconColor: "#f59e0b",
+        border: "border-[#f59e0b]/20",
+      },
+      {
+        title: "Общая экономия",
+        subtitle: "",
+        value: `${(saving / 1000000).toFixed(1)}M`,
+        detail: "Сумма отрицательных отклонений",
+        change: "live",
+        positive: true,
+        icon: TrendingDown,
+        gradient: "from-[#06b6d4]/10 to-[#10b981]/10",
+        iconColor: "#06b6d4",
+        border: "border-[#06b6d4]/20",
+      },
+    ];
+  }, [scopedRows]);
   const visibleHeatmapRows = useMemo(() => {
     const rows = costCenters.map((cc, ccIdx) => ({
       cc,
@@ -335,6 +446,23 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
   };
 
   useEffect(() => {
+    let ignore = false;
+    getReport({ from: "2025-01", to: "2026-12", threshold: 0.10 })
+      .then((response) => {
+        if (!ignore) {
+          setReportRows(response.rows);
+          setLoadError(null);
+        }
+      })
+      .catch((error) => {
+        if (!ignore) setLoadError(error instanceof Error ? error.message : "Не удалось загрузить dashboard");
+      });
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  useEffect(() => {
     const observer = new MutationObserver(() => {
       setIsDark(document.documentElement.classList.contains("dark"));
     });
@@ -364,12 +492,17 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
           >
             {managerScoped ? "План–Факт анализ по вашим ЦФО" : "План–Факт анализ по всем подразделениям"}
           </motion.p>
+          {loadError && (
+            <p className="mt-2 inline-flex rounded-lg border border-[#f59e0b]/20 bg-[#f59e0b]/10 px-3 py-1.5 text-[12px] text-[#f59e0b]">
+              {loadError}
+            </p>
+          )}
         </div>
         <motion.button
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.2 }}
-          onClick={() => toast.info("Выбор периода", { description: "Подключите бэкенд ля выбора произвольного периода" })}
+          onClick={() => toast.info("Период берётся из загруженных CSV", { description: "Детальный диапазон настраивается в отчёте План–Факт" })}
           className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-card border border-border text-[13px] text-muted-foreground hover:text-foreground hover:border-primary/30 transition-all"
           style={{ fontWeight: 500, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}
         >

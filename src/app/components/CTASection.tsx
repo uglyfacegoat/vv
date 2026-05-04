@@ -1,12 +1,12 @@
 import { motion, useInView } from "motion/react";
 import { useRef } from "react";
-import { BarChart3 } from "lucide-react";
 import badgeSparkle from "../../assets/cta-figma-2/badge-sparkle.svg";
 import buttonArrow from "../../assets/cta-figma-2/button-arrow.svg";
 import buttonChart from "../../assets/cta-figma-2/button-chart.svg";
 import heroShape from "../../assets/cta-figma-2/hero-shape.png";
 import patternArt from "../../assets/cta-figma-2/pattern.svg";
 import { useTheme } from "./ThemeProvider";
+import { BudgetIQMark } from "./brand/BudgetIQMark";
 
 interface CTASectionProps {
   onOpenAuth?: (mode: "login" | "register") => void;
@@ -126,7 +126,7 @@ export function CTASection({ onOpenAuth }: CTASectionProps) {
               <div className="mt-8 flex justify-end sm:mt-10">
                 <button
                   onClick={() => onOpenAuth?.("register")}
-                  className="group inline-flex h-[42px] items-center gap-3 rounded-[12px] bg-gradient-to-r from-[#7f22fe] to-[#155dfc] px-[18px] text-white shadow-[0_14px_42px_rgba(57,61,209,0.28)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_18px_52px_rgba(34,93,252,0.34)] sm:h-[44px] sm:px-5"
+                  className="group inline-flex h-[42px] items-center gap-3 rounded-[12px] bg-[#2563eb] px-[18px] text-white shadow-[0_14px_42px_rgba(37,99,235,0.24)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#1d4ed8] hover:shadow-[0_18px_52px_rgba(37,99,235,0.28)] sm:h-[44px] sm:px-5"
                 >
                   <img src={buttonChart} alt="" className="h-4 w-4 shrink-0" />
                   <span className="whitespace-nowrap text-[13px] sm:text-[14px]" style={{ fontWeight: 700, lineHeight: 1.2 }}>
@@ -150,9 +150,7 @@ export function CTASection({ onOpenAuth }: CTASectionProps) {
           className={`relative z-20 mt-6 flex w-full items-center justify-between gap-4 pt-5 ${footerClass}`}
         >
           <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-[#8e51ff] to-[#2b7fff]">
-              <BarChart3 className="h-4 w-4 text-white" />
-            </div>
+            <BudgetIQMark size={26} />
             <span className={`text-[16px] ${brandTextClass}`} style={{ fontWeight: 700 }}>
               BudgetIQ
             </span>

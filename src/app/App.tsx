@@ -29,63 +29,37 @@ import { LandingPage } from "./components/LandingPage";
 import { RemindersPage } from "./components/RemindersPage";
 import { DocsPage } from "./components/DocsPage";
 import { DemoPage } from "./components/DemoPage";
+import { BudgetIQMark } from "./components/brand/BudgetIQMark";
 import {
   clearStoredUser,
-  loadStoredUser,
+  hasApiToken,
   roleLabels,
   rolePermissions,
-  saveStoredUser,
   type UserRole,
   type UserSession,
 } from "./auth";
+import { getAccount, toUserSessionFromAccount, updateAccountSettings, type UserSettings } from "./api";
 
 // ── Custom BudgetIQ "B" Logo ──
 function BudgetIQLogo({ size = 32 }: { size?: number }) {
-  return (
-    <div
-      className="relative flex items-center justify-center shrink-0"
-      style={{
-        width: size,
-        height: size,
-        borderRadius: size * 0.27,
-        background: "linear-gradient(135deg, #6366f1 0%, #7c3aed 45%, #06b6d4 100%)",
-        boxShadow: "0 2px 10px rgba(99,102,241,0.3)",
-      }}
-    >
-      {/* Glass shine */}
-      <div
-        className="absolute inset-0 overflow-hidden"
-        style={{ borderRadius: size * 0.27 }}
-      >
-        <div
-          className="absolute inset-x-0 top-0"
-          style={{
-            height: "50%",
-            background: "linear-gradient(to bottom, rgba(255,255,255,0.2), transparent)",
-            borderRadius: `${size * 0.27}px ${size * 0.27}px 0 0`,
-          }}
-        />
-      </div>
-      {/* The letter */}
-      <span
-        className="relative text-white select-none"
-        style={{
-          fontFamily: "'Playfair Display', serif",
-          fontWeight: 900,
-          fontSize: size * 0.65,
-          lineHeight: 1,
-          marginTop: size * 0.02,
-          letterSpacing: "-0.02em",
-        }}
-      >
-        B
-      </span>
-    </div>
-  );
+  return <BudgetIQMark size={size} />;
 }
 
 type Page = "dashboard" | "report" | "import" | "reminders" | "docs" | "demo" | "settings" | "profile";
 type AuthMode = "login" | "register";
+
+const defaultAccountSettings: UserSettings = {
+  threshold: 10,
+  overspend_threshold: 15,
+  saving_threshold: 15,
+  number_format: "ru",
+  currency: "RUB",
+  notify_import: true,
+  notify_overspend: true,
+  notify_weekly: false,
+  email_notify: true,
+  theme: "dark",
+};
 
 const publicAuthPaths = new Set(["/", "/login", "/register"]);
 const pagePathMap: Record<Page, string> = {
@@ -148,15 +122,18 @@ function AppContent() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [authUser, setAuthUser] = useState<UserSession | null>(() => loadStoredUser());
+  const [authUser, setAuthUser] = useState<UserSession | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [accountSettings, setAccountSettings] = useState<UserSettings>(defaultAccountSettings);
   const [dark, setDark] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [reportSearchQuery, setReportSearchQuery] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
-  const [threshold, setThreshold] = useState<number>(10);
+  const [threshold, setThreshold] = useState<number>(defaultAccountSettings.threshold);
   const mainRef = useRef<HTMLDivElement>(null);
   const page = useMemo(
     () => resolvePageFromPath(location.pathname) ?? "dashboard",
@@ -179,6 +156,41 @@ function AppContent() {
     [location.pathname],
   );
 
+  const applyAccount = (user: UserSession, settings?: Partial<UserSettings>) => {
+    const mergedSettings = { ...defaultAccountSettings, ...settings };
+    setAuthUser(user);
+    setAccountSettings(mergedSettings);
+    setThreshold(mergedSettings.threshold);
+    setDark(mergedSettings.theme === "dark");
+  };
+
+  useEffect(() => {
+    if (!hasApiToken()) {
+      setAuthChecked(true);
+      return;
+    }
+    getAccount()
+      .then((account) => {
+        applyAccount(toUserSessionFromAccount(account), account.user.settings);
+      })
+      .catch(() => {
+        clearStoredUser();
+        setAuthUser(null);
+      })
+      .finally(() => setAuthChecked(true));
+  }, []);
+
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      clearStoredUser();
+      setAuthUser(null);
+      setAuthChecked(true);
+      navigate("/login", { replace: true });
+    };
+    window.addEventListener("budgetiq:unauthorized", handleUnauthorized);
+    return () => window.removeEventListener("budgetiq:unauthorized", handleUnauthorized);
+  }, [navigate]);
+
   useEffect(() => {
     if (dark) {
       document.documentElement.classList.add("dark");
@@ -198,10 +210,19 @@ function AppContent() {
   useEffect(() => {
     const resolvedPage = resolvePageFromPath(location.pathname);
     const isPublicPath = publicAuthPaths.has(location.pathname);
+    if (!authChecked) return;
     if (!authUser) {
       if (!isPublicPath) {
         navigate("/", { replace: true });
       }
+      return;
+    }
+
+    if (!hasApiToken()) {
+      setAuthUser(null);
+      clearStoredUser();
+      navigate("/login", { replace: true });
+      toast.error("Нужно войти заново", { description: "Для защищённых разделов нужен актуальный JWT-токен" });
       return;
     }
 
@@ -213,7 +234,7 @@ function AppContent() {
     if (!isPageAllowedForRole(resolvedPage, authUser.role)) {
       navigate(pagePathMap[defaultPage], { replace: true });
     }
-  }, [authUser, defaultPage, location.pathname, navigate]);
+  }, [authChecked, authUser, defaultPage, location.pathname, navigate]);
 
   const handleNavigate = (p: Page) => {
     if (authUser && !isPageAllowedForRole(p, authUser.role)) {
@@ -226,7 +247,13 @@ function AppContent() {
   };
 
   const handleThemeToggle = () => {
-    setDark(!dark);
+    const nextDark = !dark;
+    setDark(nextDark);
+    setAccountSettings((prev) => {
+      const next = { ...prev, theme: nextDark ? "dark" : "light" } as UserSettings;
+      updateAccountSettings(next).catch(() => undefined);
+      return next;
+    });
     toast(dark ? "Светлая тема" : "Тёмная тема", {
       description: dark ? "Переключено на светлый режим" : "Переключено на тёмный режим",
       icon: dark ? <Sun className="w-4 h-4 text-[#f59e0b]" /> : <Moon className="w-4 h-4 text-[#6366f1]" />,
@@ -235,7 +262,9 @@ function AppContent() {
 
   const handleSearch = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && searchQuery.trim()) {
-      toast.info(`Поиск: "${searchQuery}"`, { description: "Поиск доступен после подключения бэкенда" });
+      setReportSearchQuery(searchQuery.trim());
+      navigate(pagePathMap.report);
+      toast.info(`Поиск: "${searchQuery.trim()}"`, { description: "Фильтр применён в отчёте План-Факт" });
     }
   };
 
@@ -248,12 +277,18 @@ function AppContent() {
   };
 
   const handleAuthSuccess = (user: UserSession) => {
-    setAuthUser(user);
-    saveStoredUser(user);
+    applyAccount(user);
+    getAccount()
+      .then((account) => applyAccount(toUserSessionFromAccount(account), account.user.settings))
+      .catch(() => undefined);
     navigate(pagePathMap[getFallbackPageForRole(user.role)], { replace: true });
   };
 
   /* ── Landing view ── */
+  if (!authChecked) {
+    return null;
+  }
+
   if (!isAuthenticated) {
     return (
       <>
@@ -306,7 +341,7 @@ function AppContent() {
               className="shrink-0 cursor-pointer"
               onClick={() => handleNavigate("dashboard")}
             >
-              <BudgetIQLogo size={32} />
+              <BudgetIQLogo size={28} />
             </motion.div>
             <AnimatePresence>
               {!collapsed && (
@@ -341,7 +376,7 @@ function AppContent() {
                   onClick={() => handleNavigate(item.page)}
                   className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 w-full text-left ${
                     isActive
-                      ? "bg-gradient-to-r from-[#6366f1]/10 to-[#8b5cf6]/10 text-[#6366f1] dark:text-[#818cf8]"
+                      ? "bg-[#eef2ff] text-[#2563eb] dark:bg-[#1e293b] dark:text-[#93c5fd]"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   }`}
                 >
@@ -393,7 +428,7 @@ function AppContent() {
                 onClick={() => handleNavigate("settings")}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-xl w-full transition-all duration-200 ${
                   page === "settings"
-                    ? "bg-gradient-to-r from-[#6366f1]/10 to-[#8b5cf6]/10 text-[#6366f1] dark:text-[#818cf8]"
+                    ? "bg-[#eef2ff] text-[#2563eb] dark:bg-[#1e293b] dark:text-[#93c5fd]"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 }`}
               >
@@ -575,6 +610,7 @@ function AppContent() {
                   <Dashboard
                     userRole={authUser!.role}
                     allowedCostCenters={authUser!.allowedCostCenters}
+                    externalSearchQuery={reportSearchQuery}
                   />
                 )}
                 {page === "report" && (
@@ -586,10 +622,31 @@ function AppContent() {
                   />
                 )}
                 {page === "import" && <Import />}
-                {page === "reminders" && <RemindersPage />}                {page === "docs" && <DocsPage />}
+                {page === "reminders" && <RemindersPage user={authUser!} />}
+                {page === "docs" && <DocsPage />}
                 {page === "demo" && <DemoPage />}
-                {page === "settings" && <SettingsPage threshold={threshold} onThresholdChange={setThreshold} />}
-                {page === "profile" && <ProfilePage user={authUser!} />}
+                {page === "settings" && (
+                  <SettingsPage
+                    threshold={threshold}
+                    onThresholdChange={(value) => {
+                      setThreshold(value);
+                      setAccountSettings((prev) => ({ ...prev, threshold: value }));
+                    }}
+                    accountSettings={accountSettings}
+                    onAccountSettingsChange={(settings) => {
+                      const merged = { ...defaultAccountSettings, ...settings };
+                      setAccountSettings(merged);
+                      setThreshold(merged.threshold);
+                      setDark(merged.theme === "dark");
+                    }}
+                  />
+                )}
+                {page === "profile" && (
+                  <ProfilePage
+                    user={authUser!}
+                    onUserChange={(user) => setAuthUser(user)}
+                  />
+                )}
               </motion.div>
             </AnimatePresence>
           </main>

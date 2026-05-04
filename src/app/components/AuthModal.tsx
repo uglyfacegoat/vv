@@ -15,10 +15,9 @@ import {
   ALL_COST_CENTERS,
   type UserRole,
   type UserSession,
-  buildMockUserSession,
-  inferRoleFromEmail,
-  loadStoredUser,
+  saveApiToken,
 } from "../auth";
+import { login, register, toUserSession } from "../api";
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -74,7 +73,7 @@ export function AuthModal({
     }
   }, [isOpen, initialMode]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
     const email = formData.email.trim().toLowerCase();
@@ -101,28 +100,30 @@ export function AuthModal({
         return;
       }
     }
-    const stored = loadStoredUser();
-    const role = mode === "register" ? formData.role : inferRoleFromEmail(email);
-    const session =
-      mode === "login" && stored?.email === email
-        ? stored
-        : buildMockUserSession({
-            email,
-            role,
-            costCenter: mode === "register" ? formData.costCenter : undefined,
-          });
-
     setLoading(true);
-
-    setTimeout(() => {
+    try {
+      const costCenterIndex = ALL_COST_CENTERS.findIndex((cc) => cc === formData.costCenter);
+      const response = mode === "login"
+        ? await login(email, formData.password)
+        : await register({
+            email,
+            password: formData.password,
+            role: formData.role,
+            cc_id: formData.role === "manager" && costCenterIndex >= 0 ? costCenterIndex + 1 : null,
+          });
+      saveApiToken(response.token);
+      const session = toUserSession(response);
       setLoading(false);
       setSuccess(true);
       setTimeout(() => {
         setSuccess(false);
         onClose();
         onSuccess?.(session);
-      }, 2000);
-    }, 1500);
+      }, 800);
+    } catch (error) {
+      setLoading(false);
+      setFormError(error instanceof Error ? error.message : "Ошибка авторизации.");
+    }
   };
 
   const resetAndSwitch = (newMode: "login" | "register") => {
@@ -536,7 +537,7 @@ export function AuthModal({
                   <button
                     type="submit"
                     disabled={loading}
-                    className="w-full py-3.5 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 text-white text-[0.95rem] shadow-xl shadow-violet-500/25 hover:shadow-violet-500/40 transition-all duration-300 hover:-translate-y-0.5 flex items-center justify-center gap-2.5 disabled:opacity-70 disabled:hover:translate-y-0"
+                    className="w-full py-3.5 rounded-xl bg-[#2563eb] text-white text-[0.95rem] shadow-xl shadow-blue-500/20 hover:bg-[#1d4ed8] hover:shadow-blue-500/25 transition-all duration-300 hover:-translate-y-0.5 flex items-center justify-center gap-2.5 disabled:opacity-70 disabled:hover:translate-y-0"
                     style={{ fontWeight: 700 }}
                   >
                     {loading ? (

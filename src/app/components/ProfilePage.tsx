@@ -19,6 +19,7 @@ import {
   LogOut,
 } from "lucide-react";
 import { roleLabels, rolePermissions, type UserSession } from "../auth";
+import { toUserSessionFromAccount, updateProfile } from "../api";
 
 const activityLog = [
   { time: "Сегодня, 14:32", action: "Экспорт CSV", detail: "Отчёт План-Факт, 2025-10 — 2025-12", icon: Download, color: "#6366f1" },
@@ -31,6 +32,7 @@ const activityLog = [
 
 interface ProfilePageProps {
   user: UserSession;
+  onUserChange: (user: UserSession) => void;
 }
 
 const roleAccent: Record<UserSession["role"], { color: string; bg: string; note: string }> = {
@@ -51,30 +53,57 @@ const roleAccent: Record<UserSession["role"], { color: string; bg: string; note:
   },
 };
 
-export function ProfilePage({ user }: ProfilePageProps) {
+function getInitials(fullName: string) {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "П";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
+}
+
+export function ProfilePage({ user, onUserChange }: ProfilePageProps) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(user.name);
   const [email, setEmail] = useState(user.email);
-  const [phone, setPhone] = useState("+7 (495) 123-45-67");
+  const [phone, setPhone] = useState(user.phone ?? "");
   const [position, setPosition] = useState(user.position);
   const [department, setDepartment] = useState(user.department);
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setName(user.name);
     setEmail(user.email);
+    setPhone(user.phone ?? "");
     setPosition(user.position);
     setDepartment(user.department);
   }, [user]);
 
-  const handleSaveProfile = () => {
-    setEditing(false);
-    toast.success("Профиль обновлён", { description: `${name}, ${position}` });
+  const handleSaveProfile = async () => {
+    setSaving(true);
+    try {
+      const account = await updateProfile({
+        name: name.trim(),
+        phone: phone.trim(),
+        position: position.trim(),
+        department: department.trim(),
+        avatar_url: user.avatarUrl ?? "",
+      });
+      const nextUser = toUserSessionFromAccount(account);
+      onUserChange(nextUser);
+      setEditing(false);
+      toast.success("Профиль обновлён", { description: `${nextUser.name}, ${nextUser.position}` });
+    } catch (error) {
+      toast.error("Не удалось сохранить профиль", {
+        description: error instanceof Error ? error.message : "Проверьте соединение с backend",
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleChangePassword = () => {
     setShowChangePassword(false);
-    toast.success("Пароль изменён", { description: "Новый пароль успешно установлен" });
+    toast.info("Смена пароля", { description: "Для MVP используется вход через JWT; отдельный endpoint смены пароля будет добавлен следующим шагом" });
   };
 
   return (
@@ -120,11 +149,11 @@ export function ProfilePage({ user }: ProfilePageProps) {
               <div className="relative z-10 flex items-end gap-5 -mt-7">
                 <div className="relative">
                   <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[#6366f1] to-[#06b6d4] flex items-center justify-center border-4 border-card">
-                    <span className="text-white text-[24px]" style={{ fontWeight: 600 }}>АК</span>
+                    <span className="text-white text-[24px]" style={{ fontWeight: 600 }}>{getInitials(name)}</span>
                   </div>
                   <button
                     className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-card border border-border flex items-center justify-center text-muted-foreground hover:text-primary hover:border-primary/30 transition-all"
-                    onClick={() => toast.info("Загрузка аватара", { description: "Функция доступна после подключения бэкенда" })}
+                    onClick={() => toast.info("Аватар", { description: "Сейчас сохраняются текстовые поля профиля; файл аватара вынесен в отдельный upload endpoint" })}
                   >
                     <Camera className="w-3.5 h-3.5" />
                   </button>
@@ -155,11 +184,12 @@ export function ProfilePage({ user }: ProfilePageProps) {
                       </button>
                       <button
                         onClick={handleSaveProfile}
-                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-[#6366f1] to-[#8b5cf6] text-white text-[13px] hover:shadow-lg transition-all"
+                        disabled={saving}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#2563eb] text-white text-[13px] hover:bg-[#1d4ed8] hover:shadow-lg transition-all"
                         style={{ fontWeight: 500 }}
                       >
                         <Save className="w-4 h-4" />
-                        Сохранить
+                        {saving ? "Сохраняем..." : "Сохранить"}
                       </button>
                     </div>
                   )}
@@ -179,7 +209,7 @@ export function ProfilePage({ user }: ProfilePageProps) {
                       <f.icon className="w-3 h-3" />
                       {f.label}
                     </label>
-                    {editing ? (
+                    {editing && f.field !== "email" ? (
                       <input
                         type="text"
                         value={f.value}
@@ -283,7 +313,7 @@ export function ProfilePage({ user }: ProfilePageProps) {
                     />
                     <button
                       onClick={handleChangePassword}
-                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-[#6366f1] to-[#8b5cf6] text-white text-[13px] hover:shadow-lg transition-all"
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#2563eb] text-white text-[13px] hover:bg-[#1d4ed8] hover:shadow-lg transition-all"
                       style={{ fontWeight: 500 }}
                     >
                       <Save className="w-4 h-4" />

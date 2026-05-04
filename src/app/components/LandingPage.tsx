@@ -52,7 +52,7 @@ function LandingContent({
       className={`relative transition-colors duration-500 ${dark ? "bg-gray-950" : "bg-[#fafafe]"}`}
     >
       <GlobalFlowLines />
-      <Navbar onOpenAuth={handleOpenAuth} showAfterId="main-hero" hideAtId="cta" />
+      <Navbar onOpenAuth={handleOpenAuth} />
       <AuthModal
         isOpen={authOpen}
         onClose={handleCloseAuth}

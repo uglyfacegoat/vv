@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS user_state (
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,
+    value JSONB NOT NULL DEFAULT 'null'::jsonb,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, key)
+);
