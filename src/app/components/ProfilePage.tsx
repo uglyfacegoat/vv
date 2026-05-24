@@ -17,6 +17,7 @@ import {
   Upload,
   Download,
   LogOut,
+  Building2,
 } from "lucide-react";
 import { roleLabels, rolePermissions, type UserSession } from "../auth";
 import { toUserSessionFromAccount, updateProfile } from "../api";
@@ -201,6 +202,7 @@ export function ProfilePage({ user, onUserChange }: ProfilePageProps) {
                 {[
                   { icon: Mail, label: "Email", value: email, setter: setEmail, field: "email" },
                   { icon: Phone, label: "Телефон", value: phone, setter: setPhone, field: "phone" },
+                  { icon: Building2, label: "Компания / Enterprise", value: user.enterprise ?? "Не задано", setter: () => {}, field: "enterprise" },
                   { icon: Shield, label: "Должность", value: position, setter: setPosition, field: "position" },
                   { icon: MapPin, label: "Подразделение", value: department, setter: setDepartment, field: "department" },
                 ].map((f) => (
@@ -209,7 +211,7 @@ export function ProfilePage({ user, onUserChange }: ProfilePageProps) {
                       <f.icon className="w-3 h-3" />
                       {f.label}
                     </label>
-                    {editing && f.field !== "email" ? (
+                    {editing && f.field !== "email" && f.field !== "enterprise" ? (
                       <input
                         type="text"
                         value={f.value}

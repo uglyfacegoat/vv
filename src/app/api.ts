@@ -12,6 +12,8 @@ export interface ApiUser {
   email: string;
   role_id: number;
   cc_id?: number | null;
+  enterprise?: string;
+  enterprise_key?: string;
   profile?: UserProfile;
   settings?: UserSettings;
   created_at?: string;
@@ -77,6 +79,16 @@ export interface ImportResult {
   errors: ImportError[];
 }
 
+export interface ImportLogEntry {
+  kind: string;
+  filename: string;
+  status: string;
+  inserted: number;
+  updated: number;
+  errors: number;
+  imported_at: string;
+}
+
 export interface CompletenessResult {
   missing_in_fact: number;
   missing_in_plan: number;
@@ -114,6 +126,81 @@ export interface ReportResponse {
   kpi: ReportKPI;
 }
 
+export type DataKind = "plan" | "fact";
+
+export interface DataEntry {
+  kind: DataKind;
+  period: string;
+  cc_id: number;
+  cc_name: string;
+  item_id: number;
+  item_name: string;
+  type: ItemType;
+  amount: number;
+}
+
+export interface UpsertDataEntryInput {
+  period: string;
+  cc_id: number;
+  item_id: number;
+  amount: number;
+}
+
+export interface AdminUserSummary {
+  id: string;
+  email: string;
+  role: UserRole;
+  role_display_name: string;
+  cc_id?: number | null;
+  cc_name?: string | null;
+  profile_name: string;
+  department: string;
+  plan_rows: number;
+  fact_rows: number;
+  state_keys: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminRoleSummary {
+  role: UserRole;
+  role_display_name: string;
+  users: number;
+}
+
+export interface AdminDataSummary {
+  cost_centers: number;
+  items: number;
+  plan_rows: number;
+  fact_rows: number;
+  imports: number;
+}
+
+export interface AdminStateSummary {
+  user_id: string;
+  email: string;
+  key: string;
+  updated_at: string;
+}
+
+export interface AdminImportSummary {
+  kind: string;
+  filename: string;
+  status: string;
+  inserted: number;
+  updated: number;
+  errors: number;
+  imported_at: string;
+}
+
+export interface AdminOverview {
+  users: AdminUserSummary[];
+  roles: AdminRoleSummary[];
+  data: AdminDataSummary;
+  states: AdminStateSummary[];
+  imports: AdminImportSummary[];
+}
+
 function getToken() {
   try {
     return localStorage.getItem(API_TOKEN_KEY);
@@ -133,13 +220,30 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
   if (!response.ok) {
     const rawMessage = (await response.text()).trim();
+    const friendly = toFriendlyApiError(rawMessage, response.status);
     if (response.status === 401) {
       window.dispatchEvent(new CustomEvent("budgetiq:unauthorized"));
       throw new Error("Сессия истекла или отсутствует. Войдите заново.");
     }
-    throw new Error(rawMessage || `HTTP ${response.status}`);
+    throw new Error(friendly);
   }
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
+}
+
+function toFriendlyApiError(rawMessage: string, status: number) {
+  const message = rawMessage || `HTTP ${status}`;
+  const lower = message.toLowerCase();
+  if (lower.includes("invalid email or password")) return "Неверный email или пароль. Проверьте данные и попробуйте ещё раз.";
+  if (lower.includes("email and password")) return "Укажите email и пароль. Пароль должен быть не короче 8 символов.";
+  if (lower.includes("duplicate key") && lower.includes("users_email")) return "Аккаунт с таким email уже существует. Войдите или используйте другой email.";
+  if (lower.includes("duplicate key")) return "Такая запись уже есть в базе. Проверьте код, период или связку ЦФО/статья.";
+  if (lower.includes("violates foreign key")) return "Не найдена связанная запись. Проверьте cc_id и item_id в справочниках.";
+  if (lower.includes("check constraint")) return "Значение не проходит проверку. Сумма должна быть неотрицательной, тип: OPEX или CAPEX.";
+  if (lower.includes("failed to create user")) return "Не удалось создать аккаунт. Возможно, email уже занят.";
+  if (lower.includes("failed to load threshold")) return "Не удалось загрузить порог отклонений из backend.";
+  if (lower.includes("network") || lower.includes("fetch")) return "Backend недоступен. Проверьте, что API запущен.";
+  return message;
 }
 
 export function toUserSession(response: AuthResponse): UserSession {
@@ -162,6 +266,8 @@ export function toUserSession(response: AuthResponse): UserSession {
     department: profile?.department?.trim() || (role === "manager" ? ccName ?? "ЦФО" : "Финансы"),
     phone: profile?.phone,
     avatarUrl: profile?.avatar_url,
+    enterprise: response.user.enterprise?.trim() || response.user.enterprise_key?.trim() || response.user.email.split("@")[1] || "default",
+    enterpriseKey: response.user.enterprise_key?.trim() || response.user.email.split("@")[1] || "default",
     allowedCostCenters: role === "manager" && ccName ? [ccName] : [...ALL_COST_CENTERS],
   };
 }
@@ -288,6 +394,38 @@ export function uploadCsvWithOptions(
 
 export function checkCompleteness() {
   return request<CompletenessResult>("/api/import/completeness");
+}
+
+export function getImportLogs(limit = 20) {
+  return request<ImportLogEntry[] | null>(`/api/import/logs?limit=${limit}`).then((logs) => logs ?? []);
+}
+
+export function getDataEntries(kind: DataKind, limit = 200) {
+  return request<DataEntry[] | null>(`/api/v1/data/${kind}?limit=${limit}`).then((entries) => entries ?? []);
+}
+
+export function upsertDataEntry(kind: DataKind, input: UpsertDataEntryInput) {
+  return request<{ ok: boolean }>(`/api/v1/data/${kind}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteDataEntry(kind: DataKind, input: Pick<UpsertDataEntryInput, "period" | "cc_id" | "item_id">) {
+  const search = new URLSearchParams({
+    period: input.period,
+    cc_id: String(input.cc_id),
+    item_id: String(input.item_id),
+  });
+  return request<{ ok: boolean }>(`/api/v1/data/${kind}?${search.toString()}`, { method: "DELETE" });
+}
+
+export function clearPlanFactData() {
+  return request<{ ok: boolean }>("/api/v1/data", { method: "DELETE" });
+}
+
+export function getAdminOverview() {
+  return request<AdminOverview>("/api/v1/admin/overview");
 }
 
 export function getReport(params: {

@@ -98,6 +98,7 @@ func scanUser(row pgx.Row) (*models.User, string, error) {
 	var profileRaw, settingsRaw []byte
 	err := row.Scan(
 		&user.ID, &user.Email, &user.PasswordHash, &user.RoleID, &user.CCID,
+		&user.EnterpriseID, &user.EnterpriseKey, &user.Enterprise,
 		&profileRaw, &settingsRaw, &user.CreatedAt, &user.UpdatedAt, &roleName,
 	)
 	if err != nil {
@@ -118,8 +119,16 @@ func scanUser(row pgx.Row) (*models.User, string, error) {
 func (r *UserRepository) CreateUser(ctx context.Context, u *models.User) error {
 	profile, _ := json.Marshal(normalizeProfile(u.Profile, u.Email, ""))
 	settings, _ := json.Marshal(normalizeSettings(u.Settings))
-	q := `INSERT INTO users (email, password_hash, role_id, cc_id, profile, settings)
-		  VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at, updated_at`
+	q := `
+		WITH enterprise AS (
+			INSERT INTO enterprises (key, name)
+			VALUES (lower(split_part($1, '@', 2)), lower(split_part($1, '@', 2)))
+			ON CONFLICT (key) DO UPDATE SET name = EXCLUDED.name
+			RETURNING id
+		)
+		INSERT INTO users (email, password_hash, role_id, cc_id, profile, settings, enterprise_id)
+		VALUES ($1, $2, $3, $4, $5, $6, (SELECT id FROM enterprise))
+		RETURNING id, created_at, updated_at`
 	err := r.db.QueryRow(ctx, q, u.Email, u.PasswordHash, u.RoleID, u.CCID, profile, settings).Scan(&u.ID, &u.CreatedAt, &u.UpdatedAt)
 	return err
 }
@@ -133,9 +142,12 @@ func (r *UserRepository) GetRoleIDByName(ctx context.Context, name string) (int,
 // GetUserByEmail со встроенным ролевым запросом
 func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (*models.User, string, error) {
 	q := `
-		SELECT u.id, u.email, u.password_hash, u.role_id, u.cc_id, u.profile, u.settings, u.created_at, u.updated_at, r.name as role_name
+		SELECT u.id, u.email, u.password_hash, u.role_id, u.cc_id,
+		       u.enterprise_id, COALESCE(e.key, ''), COALESCE(e.name, ''),
+		       u.profile, u.settings, u.created_at, u.updated_at, r.name as role_name
 		FROM users u
 		JOIN roles r ON u.role_id = r.id
+		LEFT JOIN enterprises e ON e.id = u.enterprise_id
 		WHERE u.email = $1
 	`
 	user, roleName, err := scanUser(r.db.QueryRow(ctx, q, email))
@@ -150,9 +162,12 @@ func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (*mod
 
 func (r *UserRepository) GetUserByID(ctx context.Context, id uuid.UUID) (*models.User, string, error) {
 	q := `
-		SELECT u.id, u.email, u.password_hash, u.role_id, u.cc_id, u.profile, u.settings, u.created_at, u.updated_at, r.name as role_name
+		SELECT u.id, u.email, u.password_hash, u.role_id, u.cc_id,
+		       u.enterprise_id, COALESCE(e.key, ''), COALESCE(e.name, ''),
+		       u.profile, u.settings, u.created_at, u.updated_at, r.name as role_name
 		FROM users u
 		JOIN roles r ON u.role_id = r.id
+		LEFT JOIN enterprises e ON e.id = u.enterprise_id
 		WHERE u.id = $1
 	`
 	user, roleName, err := scanUser(r.db.QueryRow(ctx, q, id))

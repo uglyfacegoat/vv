@@ -9,6 +9,7 @@ import {
   EyeOff,
   Building2,
   Chrome,
+  Check,
 } from "lucide-react";
 import { useTheme } from "./ThemeProvider";
 import {
@@ -52,6 +53,7 @@ export function AuthModal({
     costCenter: "",
   });
   const [formError, setFormError] = useState<string | null>(null);
+  const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
 
@@ -63,8 +65,11 @@ export function AuthModal({
       setShowPassword(false);
       setShowConfirmPassword(false);
       setFormError(null);
+      const rememberedEmail = localStorage.getItem("budgetiq.remember.email") ?? "";
+      const remembered = localStorage.getItem("budgetiq.remember.enabled") !== "false";
+      setRememberMe(remembered);
       setFormData({
-        email: "",
+        email: remembered ? rememberedEmail : "",
         password: "",
         confirmPassword: "",
         role: "analyst",
@@ -112,6 +117,13 @@ export function AuthModal({
             cc_id: formData.role === "manager" && costCenterIndex >= 0 ? costCenterIndex + 1 : null,
           });
       saveApiToken(response.token);
+      if (rememberMe) {
+        localStorage.setItem("budgetiq.remember.enabled", "true");
+        localStorage.setItem("budgetiq.remember.email", email);
+      } else {
+        localStorage.setItem("budgetiq.remember.enabled", "false");
+        localStorage.removeItem("budgetiq.remember.email");
+      }
       const session = toUserSession(response);
       setLoading(false);
       setSuccess(true);
@@ -160,7 +172,7 @@ export function AuthModal({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.92, y: 30 }}
             transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-            className="relative w-full max-w-[460px]"
+            className="relative w-full max-w-[440px] max-h-[calc(100vh-32px)]"
             onClick={(e) => e.stopPropagation()}
           >
             <div
@@ -179,7 +191,7 @@ export function AuthModal({
             />
 
             <div
-              className={`relative rounded-3xl backdrop-blur-xl overflow-hidden shadow-2xl ${
+              className={`relative rounded-3xl backdrop-blur-xl overflow-hidden shadow-2xl max-h-[calc(100vh-32px)] overflow-y-auto ${
                 dark
                   ? "bg-gray-900/95 shadow-violet-500/20 border border-gray-800/80"
                   : "bg-white/95 shadow-violet-500/10"
@@ -194,8 +206,8 @@ export function AuthModal({
                 <X className={`w-4 h-4 ${dark ? "text-gray-300" : "text-gray-500"}`} />
               </button>
 
-              <div className="p-8 pt-7">
-                <div className="text-center mb-7">
+              <div className="p-6 pt-6">
+                <div className="text-center mb-5">
                   <AnimatePresence mode="wait">
                     <motion.div
                       key={mode}
@@ -263,7 +275,7 @@ export function AuthModal({
                   )}
                 </AnimatePresence>
 
-                <div className="grid grid-cols-2 gap-3 mb-6">
+                <div className="grid grid-cols-2 gap-3 mb-4">
                   <button
                     className={`flex items-center justify-center gap-2.5 py-3 rounded-xl border transition-all duration-300 group ${
                       dark
@@ -313,7 +325,7 @@ export function AuthModal({
                   </button>
                 </div>
 
-                <div className="flex items-center gap-4 mb-6">
+                <div className="flex items-center gap-4 mb-4">
                   <div className={`flex-1 h-px ${dark ? "bg-gray-700" : "bg-gray-200"}`} />
                   <span className={`text-[0.78rem] ${dark ? "text-gray-500" : "text-gray-400"}`} style={{ fontWeight: 500 }}>
                     или по email
@@ -321,7 +333,7 @@ export function AuthModal({
                   <div className={`flex-1 h-px ${dark ? "bg-gray-700" : "bg-gray-200"}`} />
                 </div>
 
-                <form onSubmit={handleSubmit} className="space-y-4">
+                <form onSubmit={handleSubmit} className="space-y-3">
                   <div>
                     <label
                       className={`block text-[0.82rem] mb-1.5 ${dark ? "text-gray-300" : "text-gray-600"}`}
@@ -502,10 +514,18 @@ export function AuthModal({
                       <label className="flex items-center gap-2 cursor-pointer">
                         <div
                           className={`w-4 h-4 rounded border flex items-center justify-center hover:border-violet-400 transition-colors ${
-                            dark ? "border-gray-600 bg-gray-800" : "border-gray-300 bg-white"
+                            rememberMe
+                              ? "border-violet-500 bg-violet-500"
+                              : dark ? "border-gray-600 bg-gray-800" : "border-gray-300 bg-white"
                           }`}
                         >
-                          <input type="checkbox" className="sr-only" />
+                          <input
+                            type="checkbox"
+                            checked={rememberMe}
+                            onChange={(e) => setRememberMe(e.target.checked)}
+                            className="sr-only"
+                          />
+                          {rememberMe && <Check className="w-3 h-3 text-white" />}
                         </div>
                         <span className={`text-[0.82rem] ${dark ? "text-gray-400" : "text-gray-500"}`}>Запомнить меня</span>
                       </label>

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -11,6 +11,7 @@ import {
   RotateCcw,
   Upload,
 } from "lucide-react";
+import { getAccountState, saveAccountState } from "../api";
 
 interface DemoStep {
   id: string;
@@ -51,9 +52,24 @@ const demoSteps: DemoStep[] = [
   },
 ];
 
+const STORAGE_KEY = "demo.progress.v1";
+
 export function DemoPage() {
   const navigate = useNavigate();
   const [completed, setCompleted] = useState<Record<string, boolean>>({});
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    getAccountState<Record<string, boolean>>(STORAGE_KEY)
+      .then((saved) => setCompleted(saved ?? {}))
+      .catch(() => undefined)
+      .finally(() => setLoaded(true));
+  }, []);
+
+  useEffect(() => {
+    if (!loaded) return;
+    saveAccountState(STORAGE_KEY, completed).catch(() => undefined);
+  }, [completed, loaded]);
 
   const doneCount = useMemo(
     () => demoSteps.filter((step) => completed[step.id]).length,

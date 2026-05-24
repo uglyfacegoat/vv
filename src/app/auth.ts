@@ -8,6 +8,8 @@ export interface UserSession {
   department: string;
   phone?: string;
   avatarUrl?: string;
+  enterprise?: string;
+  enterpriseKey?: string;
   allowedCostCenters: string[];
 }
 
@@ -163,6 +165,8 @@ export function sanitizeSession(input: UserSession): UserSession {
       || (role === "manager" ? allowedCostCenters[0] : roleDefaults[role].department),
     phone: input.phone,
     avatarUrl: input.avatarUrl,
+    enterprise: input.enterprise,
+    enterpriseKey: input.enterpriseKey,
     allowedCostCenters,
   };
 }

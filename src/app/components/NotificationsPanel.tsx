@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import {
@@ -15,6 +15,7 @@ import {
   Shield,
   TrendingUp,
 } from "lucide-react";
+import { getAccountState, saveAccountState } from "../api";
 
 interface Notification {
   id: string;
@@ -100,6 +101,19 @@ const initialNotifications: Notification[] = [
   },
 ];
 
+const STORAGE_KEY = "notifications.v1";
+
+const iconByType = {
+  success: Upload,
+  warning: AlertTriangle,
+  error: XCircle,
+  info: Info,
+} as const;
+
+function hydrateNotifications(items: Notification[]) {
+  return items.map((item) => ({ ...item, icon: item.icon ?? iconByType[item.type] ?? Bell }));
+}
+
 interface NotificationsPanelProps {
   isOpen: boolean;
   onClose: () => void;
@@ -108,6 +122,22 @@ interface NotificationsPanelProps {
 export function NotificationsPanel({ isOpen, onClose }: NotificationsPanelProps) {
   const [notifications, setNotifications] = useState(initialNotifications);
   const [filter, setFilter] = useState<"all" | "unread">("all");
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    getAccountState<Notification[]>(STORAGE_KEY)
+      .then((saved) => {
+        setNotifications(saved ? hydrateNotifications(saved) : initialNotifications);
+      })
+      .catch(() => setNotifications(initialNotifications))
+      .finally(() => setLoaded(true));
+  }, []);
+
+  useEffect(() => {
+    if (!loaded) return;
+    const serializable = notifications.map(({ icon: _icon, ...item }) => item);
+    saveAccountState(STORAGE_KEY, serializable).catch(() => undefined);
+  }, [loaded, notifications]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
   const filtered = filter === "unread" ? notifications.filter((n) => !n.read) : notifications;

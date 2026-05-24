@@ -29,6 +29,7 @@ type Item struct {
 
 type Plan struct {
 	ID         uuid.UUID `json:"id"`
+	UserID     uuid.UUID `json:"user_id,omitempty"`
 	Period     string    `json:"period"` // YYYY-MM
 	CCID       int       `json:"cc_id"`
 	ItemID     int       `json:"item_id"`
@@ -37,10 +38,29 @@ type Plan struct {
 
 type Fact struct {
 	ID         uuid.UUID `json:"id"`
+	UserID     uuid.UUID `json:"user_id,omitempty"`
 	Period     string    `json:"period"` // YYYY-MM
 	CCID       int       `json:"cc_id"`
 	ItemID     int       `json:"item_id"`
 	AmountFact float64   `json:"amount_fact"`
+}
+
+type DataEntry struct {
+	Kind     string  `json:"kind"`
+	Period   string  `json:"period"`
+	CCID     int     `json:"cc_id"`
+	CCName   string  `json:"cc_name"`
+	ItemID   int     `json:"item_id"`
+	ItemName string  `json:"item_name"`
+	Type     string  `json:"type"`
+	Amount   float64 `json:"amount"`
+}
+
+type UpsertDataEntryRequest struct {
+	Period string  `json:"period"`
+	CCID   int     `json:"cc_id"`
+	ItemID int     `json:"item_id"`
+	Amount float64 `json:"amount"`
 }
 
 type PlanFactRow struct {
@@ -80,6 +100,16 @@ type ImportResult struct {
 	Updated     int           `json:"updated"`
 	AutoCreated int           `json:"auto_created"`
 	Errors      []ImportError `json:"errors"`
+}
+
+type ImportLogEntry struct {
+	Kind       string `json:"kind"`
+	Filename   string `json:"filename"`
+	Status     string `json:"status"`
+	Inserted   int    `json:"inserted"`
+	Updated    int    `json:"updated"`
+	Errors     int    `json:"errors"`
+	ImportedAt string `json:"imported_at"`
 }
 
 type CompletenessResult struct {

@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"backend/internal/models"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -157,39 +158,45 @@ func (r *BusinessRepository) ItemExists(ctx context.Context, id int) (bool, erro
 }
 
 // Plan/Fact
-func (r *BusinessRepository) CreatePlan(ctx context.Context, p *models.Plan) error {
-	q := `INSERT INTO plan (period, cc_id, item_id, amount_plan) 
-		  VALUES ($1, $2, $3, $4) 
-		  ON CONFLICT (period, cc_id, item_id) DO UPDATE SET amount_plan = $4
+func (r *BusinessRepository) CreatePlan(ctx context.Context, userID uuid.UUID, p *models.Plan) error {
+	q := `INSERT INTO plan (user_id, enterprise_id, period, cc_id, item_id, amount_plan)
+		  SELECT $1, enterprise_id, $2, $3, $4, $5 FROM users WHERE id = $1
+		  ON CONFLICT (enterprise_id, period, cc_id, item_id) WHERE enterprise_id IS NOT NULL
+		  DO UPDATE SET user_id = EXCLUDED.user_id, amount_plan = EXCLUDED.amount_plan
 		  RETURNING id`
-	return r.db.QueryRow(ctx, q, p.Period, p.CCID, p.ItemID, p.AmountPlan).Scan(&p.ID)
+	p.UserID = userID
+	return r.db.QueryRow(ctx, q, userID, p.Period, p.CCID, p.ItemID, p.AmountPlan).Scan(&p.ID)
 }
 
-func (r *BusinessRepository) CreateFact(ctx context.Context, f *models.Fact) error {
-	q := `INSERT INTO fact (period, cc_id, item_id, amount_fact) 
-		  VALUES ($1, $2, $3, $4) 
-		  ON CONFLICT (period, cc_id, item_id) DO UPDATE SET amount_fact = $4
+func (r *BusinessRepository) CreateFact(ctx context.Context, userID uuid.UUID, f *models.Fact) error {
+	q := `INSERT INTO fact (user_id, enterprise_id, period, cc_id, item_id, amount_fact)
+		  SELECT $1, enterprise_id, $2, $3, $4, $5 FROM users WHERE id = $1
+		  ON CONFLICT (enterprise_id, period, cc_id, item_id) WHERE enterprise_id IS NOT NULL
+		  DO UPDATE SET user_id = EXCLUDED.user_id, amount_fact = EXCLUDED.amount_fact
 		  RETURNING id`
-	return r.db.QueryRow(ctx, q, f.Period, f.CCID, f.ItemID, f.AmountFact).Scan(&f.ID)
+	f.UserID = userID
+	return r.db.QueryRow(ctx, q, userID, f.Period, f.CCID, f.ItemID, f.AmountFact).Scan(&f.ID)
 }
 
-func (r *BusinessRepository) UpsertPlan(ctx context.Context, p models.Plan) error {
-	q := `INSERT INTO plan (period, cc_id, item_id, amount_plan)
-		  VALUES ($1, $2, $3, $4)
-		  ON CONFLICT (period, cc_id, item_id) DO UPDATE SET amount_plan = EXCLUDED.amount_plan`
-	_, err := r.db.Exec(ctx, q, p.Period, p.CCID, p.ItemID, p.AmountPlan)
+func (r *BusinessRepository) UpsertPlan(ctx context.Context, userID uuid.UUID, p models.Plan) error {
+	q := `INSERT INTO plan (user_id, enterprise_id, period, cc_id, item_id, amount_plan)
+		  SELECT $1, enterprise_id, $2, $3, $4, $5 FROM users WHERE id = $1
+		  ON CONFLICT (enterprise_id, period, cc_id, item_id) WHERE enterprise_id IS NOT NULL
+		  DO UPDATE SET user_id = EXCLUDED.user_id, amount_plan = EXCLUDED.amount_plan`
+	_, err := r.db.Exec(ctx, q, userID, p.Period, p.CCID, p.ItemID, p.AmountPlan)
 	return err
 }
 
-func (r *BusinessRepository) UpsertFact(ctx context.Context, f models.Fact) error {
-	q := `INSERT INTO fact (period, cc_id, item_id, amount_fact)
-		  VALUES ($1, $2, $3, $4)
-		  ON CONFLICT (period, cc_id, item_id) DO UPDATE SET amount_fact = EXCLUDED.amount_fact`
-	_, err := r.db.Exec(ctx, q, f.Period, f.CCID, f.ItemID, f.AmountFact)
+func (r *BusinessRepository) UpsertFact(ctx context.Context, userID uuid.UUID, f models.Fact) error {
+	q := `INSERT INTO fact (user_id, enterprise_id, period, cc_id, item_id, amount_fact)
+		  SELECT $1, enterprise_id, $2, $3, $4, $5 FROM users WHERE id = $1
+		  ON CONFLICT (enterprise_id, period, cc_id, item_id) WHERE enterprise_id IS NOT NULL
+		  DO UPDATE SET user_id = EXCLUDED.user_id, amount_fact = EXCLUDED.amount_fact`
+	_, err := r.db.Exec(ctx, q, userID, f.Period, f.CCID, f.ItemID, f.AmountFact)
 	return err
 }
 
-func (r *BusinessRepository) GetPlanFactReport(ctx context.Context, period string) ([]models.PlanFactRow, error) {
+func (r *BusinessRepository) GetPlanFactReport(ctx context.Context, userID uuid.UUID, period string) ([]models.PlanFactRow, error) {
 	q := `
 		SELECT 
 			COALESCE(p.period, f.period) as period,
@@ -214,12 +221,12 @@ func (r *BusinessRepository) GetPlanFactReport(ctx context.Context, period strin
 			END as status
 		FROM cost_centers cc
 		CROSS JOIN items i
-		LEFT JOIN plan p ON cc.cc_id = p.cc_id AND i.item_id = p.item_id AND p.period = $1
-		LEFT JOIN fact f ON cc.cc_id = f.cc_id AND i.item_id = f.item_id AND f.period = $1
+		LEFT JOIN plan p ON cc.cc_id = p.cc_id AND i.item_id = p.item_id AND p.period = $2 AND p.enterprise_id = (SELECT enterprise_id FROM users WHERE id = $1)
+		LEFT JOIN fact f ON cc.cc_id = f.cc_id AND i.item_id = f.item_id AND f.period = $2 AND f.enterprise_id = (SELECT enterprise_id FROM users WHERE id = $1)
 		WHERE p.id IS NOT NULL OR f.id IS NOT NULL
 		ORDER BY cc.name, i.name
 	`
-	rows, err := r.db.Query(ctx, q, period)
+	rows, err := r.db.Query(ctx, q, userID, period)
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +247,7 @@ func (r *BusinessRepository) GetPlanFactReport(ctx context.Context, period strin
 	return report, nil
 }
 
-func (r *BusinessRepository) GetReport(ctx context.Context, from, to string, ccID *int, itemType *string, status *string, threshold float64) (models.ReportResponse, error) {
+func (r *BusinessRepository) GetReport(ctx context.Context, userID uuid.UUID, from, to string, ccID *int, itemType *string, status *string, threshold float64) (models.ReportResponse, error) {
 	q := `
 		WITH report_rows AS (
 			SELECT
@@ -259,32 +266,33 @@ func (r *BusinessRepository) GetReport(ctx context.Context, from, to string, ccI
 					ELSE ((COALESCE(f.amount_fact, 0) - COALESCE(p.amount_plan, 0)) / COALESCE(p.amount_plan, 0))::float8
 				END as delta_pct
 			FROM plan p
-			FULL OUTER JOIN fact f ON f.period = p.period AND f.cc_id = p.cc_id AND f.item_id = p.item_id
+			FULL OUTER JOIN fact f ON f.enterprise_id = p.enterprise_id AND f.period = p.period AND f.cc_id = p.cc_id AND f.item_id = p.item_id
 			JOIN cost_centers cc ON cc.cc_id = COALESCE(p.cc_id, f.cc_id)
 			JOIN items i ON i.item_id = COALESCE(p.item_id, f.item_id)
+			WHERE COALESCE(p.enterprise_id, f.enterprise_id) = (SELECT enterprise_id FROM users WHERE id = $1)
 		)
 		SELECT
 			period, cc_id, cc_name, item_id, item_name, item_type,
 			amount_plan, amount_fact, delta, delta_pct,
 			CASE
 				WHEN amount_plan = 0 AND amount_fact > 0 THEN 'NO_PLAN'
-				WHEN ABS(delta_pct) <= $5 THEN 'IN_NORM'
-				WHEN delta_pct > $5 THEN 'OVERSPEND'
+				WHEN ABS(delta_pct) <= $6 THEN 'IN_NORM'
+				WHEN delta_pct > $6 THEN 'OVERSPEND'
 				ELSE 'SAVING'
 			END as status
 		FROM report_rows
-		WHERE period >= $1 AND period <= $2
-			AND ($3::int IS NULL OR cc_id = $3)
-			AND ($4::text IS NULL OR item_type = $4)
+		WHERE period >= $2 AND period <= $3
+			AND ($4::int IS NULL OR cc_id = $4)
+			AND ($5::text IS NULL OR item_type = $5)
 		ORDER BY period, cc_name, item_name
 	`
-	rows, err := r.db.Query(ctx, q, from, to, ccID, itemType, threshold)
+	rows, err := r.db.Query(ctx, q, userID, from, to, ccID, itemType, threshold)
 	if err != nil {
 		return models.ReportResponse{}, err
 	}
 	defer rows.Close()
 
-	var result models.ReportResponse
+	result := models.ReportResponse{Rows: []models.PlanFactRow{}}
 	for rows.Next() {
 		var row models.PlanFactRow
 		if err := rows.Scan(
@@ -329,27 +337,28 @@ func (r *BusinessRepository) GetReport(ctx context.Context, from, to string, ccI
 	return result, rows.Err()
 }
 
-func (r *BusinessRepository) CheckCompleteness(ctx context.Context) (models.CompletenessResult, error) {
+func (r *BusinessRepository) CheckCompleteness(ctx context.Context, userID uuid.UUID) (models.CompletenessResult, error) {
 	res := models.CompletenessResult{PeriodMismatch: []string{}}
 	err := r.db.QueryRow(ctx, `
 		SELECT
-			(SELECT COUNT(*) FROM plan p LEFT JOIN fact f ON f.period = p.period AND f.cc_id = p.cc_id AND f.item_id = p.item_id WHERE f.id IS NULL),
-			(SELECT COUNT(*) FROM fact f LEFT JOIN plan p ON p.period = f.period AND p.cc_id = f.cc_id AND p.item_id = f.item_id WHERE p.id IS NULL)
-	`).Scan(&res.MissingInFact, &res.MissingInPlan)
+			(SELECT COUNT(*) FROM plan p LEFT JOIN fact f ON f.enterprise_id = p.enterprise_id AND f.period = p.period AND f.cc_id = p.cc_id AND f.item_id = p.item_id WHERE p.enterprise_id = (SELECT enterprise_id FROM users WHERE id = $1) AND f.id IS NULL),
+			(SELECT COUNT(*) FROM fact f LEFT JOIN plan p ON p.enterprise_id = f.enterprise_id AND p.period = f.period AND p.cc_id = f.cc_id AND p.item_id = f.item_id WHERE f.enterprise_id = (SELECT enterprise_id FROM users WHERE id = $1) AND p.id IS NULL)
+	`, userID).Scan(&res.MissingInFact, &res.MissingInPlan)
 	if err != nil {
 		return res, err
 	}
 
 	rows, err := r.db.Query(ctx, `
-		WITH pp AS (SELECT DISTINCT period FROM plan),
-		     fp AS (SELECT DISTINCT period FROM fact)
+		WITH current_enterprise AS (SELECT enterprise_id FROM users WHERE id = $1),
+		     pp AS (SELECT DISTINCT period FROM plan WHERE enterprise_id = (SELECT enterprise_id FROM current_enterprise)),
+		     fp AS (SELECT DISTINCT period FROM fact WHERE enterprise_id = (SELECT enterprise_id FROM current_enterprise))
 		SELECT 'period ' || pp.period || ' есть в plan, но нет в fact'
 		FROM pp LEFT JOIN fp USING (period) WHERE fp.period IS NULL
 		UNION ALL
 		SELECT 'period ' || fp.period || ' есть в fact, но нет в plan'
 		FROM fp LEFT JOIN pp USING (period) WHERE pp.period IS NULL
 		ORDER BY 1
-	`)
+	`, userID)
 	if err != nil {
 		return res, err
 	}
@@ -364,12 +373,92 @@ func (r *BusinessRepository) CheckCompleteness(ctx context.Context) (models.Comp
 	return res, rows.Err()
 }
 
-func (r *BusinessRepository) LogImport(ctx context.Context, kind, filename, hash, status string, inserted, updated, errorCount int) error {
-	_, err := r.db.Exec(ctx, `
-		INSERT INTO imports_log (kind, filename, file_hash, status, inserted_count, updated_count, error_count)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, kind, filename, hash, status, inserted, updated, errorCount)
+func (r *BusinessRepository) GetDataEntries(ctx context.Context, userID uuid.UUID, kind string, limit int) ([]models.DataEntry, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	amountColumn := "amount_plan"
+	tableName := "plan"
+	if kind == "fact" {
+		amountColumn = "amount_fact"
+		tableName = "fact"
+	}
+	rows, err := r.db.Query(ctx, `
+		SELECT $1::text as kind, d.period, d.cc_id, cc.name, d.item_id, i.name, i.type, `+amountColumn+`::float8
+		FROM `+tableName+` d
+		JOIN cost_centers cc ON cc.cc_id = d.cc_id
+		JOIN items i ON i.item_id = d.item_id
+		WHERE d.enterprise_id = (SELECT enterprise_id FROM users WHERE id = $2)
+		ORDER BY d.period DESC, cc.name, i.name
+		LIMIT $3
+	`, kind, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	entries := []models.DataEntry{}
+	for rows.Next() {
+		var entry models.DataEntry
+		if err := rows.Scan(&entry.Kind, &entry.Period, &entry.CCID, &entry.CCName, &entry.ItemID, &entry.ItemName, &entry.Type, &entry.Amount); err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+	return entries, rows.Err()
+}
+
+func (r *BusinessRepository) DeleteDataEntry(ctx context.Context, userID uuid.UUID, kind, period string, ccID, itemID int) error {
+	tableName := "plan"
+	if kind == "fact" {
+		tableName = "fact"
+	}
+	_, err := r.db.Exec(ctx, `DELETE FROM `+tableName+` WHERE enterprise_id = (SELECT enterprise_id FROM users WHERE id = $1) AND period = $2 AND cc_id = $3 AND item_id = $4`, userID, period, ccID, itemID)
 	return err
+}
+
+func (r *BusinessRepository) ClearUserPlanFact(ctx context.Context, userID uuid.UUID) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM fact WHERE enterprise_id = (SELECT enterprise_id FROM users WHERE id = $1)`, userID)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx, `DELETE FROM plan WHERE enterprise_id = (SELECT enterprise_id FROM users WHERE id = $1)`, userID)
+	return err
+}
+
+func (r *BusinessRepository) LogImport(ctx context.Context, userID uuid.UUID, kind, filename, hash, status string, inserted, updated, errorCount int) error {
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO imports_log (user_id, enterprise_id, kind, filename, file_hash, status, inserted_count, updated_count, error_count)
+		SELECT $1, enterprise_id, $2, $3, $4, $5, $6, $7, $8 FROM users WHERE id = $1
+	`, userID, kind, filename, hash, status, inserted, updated, errorCount)
+	return err
+}
+
+func (r *BusinessRepository) GetImportLogs(ctx context.Context, userID uuid.UUID, limit int) ([]models.ImportLogEntry, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	rows, err := r.db.Query(ctx, `
+		SELECT kind, filename, status, inserted_count, updated_count, error_count, imported_at::text
+		FROM imports_log
+		WHERE enterprise_id = (SELECT enterprise_id FROM users WHERE id = $1)
+		ORDER BY imported_at DESC
+		LIMIT $2
+	`, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	logs := []models.ImportLogEntry{}
+	for rows.Next() {
+		var entry models.ImportLogEntry
+		if err := rows.Scan(&entry.Kind, &entry.Filename, &entry.Status, &entry.Inserted, &entry.Updated, &entry.Errors, &entry.ImportedAt); err != nil {
+			return nil, err
+		}
+		logs = append(logs, entry)
+	}
+	return logs, rows.Err()
 }
 
 func (r *BusinessRepository) GetThreshold(ctx context.Context) (float64, error) {

@@ -68,11 +68,13 @@ func main() {
 	// Инициализация репозиториев
 	userRepo := repository.NewUserRepository(pool)
 	businessRepo := repository.NewBusinessRepository(pool)
+	adminRepo := repository.NewAdminRepository(pool)
 
 	// Инициализация хендлеров
 	authHandler := handlers.NewAuthHandler(userRepo)
 	businessHandler := handlers.NewBusinessHandler(businessRepo)
 	importHandler := handlers.NewImportHandler(businessRepo)
+	adminHandler := handlers.NewAdminHandler(adminRepo, userRepo)
 
 	// API Авторизации (публичные роуты)
 	r.Post("/api/v1/auth/register", authHandler.Register)
@@ -87,6 +89,7 @@ func main() {
 		r.Patch("/api/v1/account/settings", authHandler.UpdateSettings)
 		r.Get("/api/v1/account/state/{key}", authHandler.GetState)
 		r.Put("/api/v1/account/state/{key}", authHandler.SetState)
+		r.Get("/api/v1/admin/overview", adminHandler.GetOverview)
 
 		r.Get("/api/v1/cost-centers", businessHandler.GetCostCenters)
 		r.Post("/api/v1/cost-centers", businessHandler.CreateCostCenter)
@@ -103,6 +106,10 @@ func main() {
 
 		r.Get("/api/v1/report", businessHandler.GetReport)
 		r.Get("/api/v1/report/export", businessHandler.ExportReport)
+		r.Get("/api/v1/data/{kind}", businessHandler.GetDataEntries)
+		r.Put("/api/v1/data/{kind}", businessHandler.UpsertDataEntry)
+		r.Delete("/api/v1/data/{kind}", businessHandler.DeleteDataEntry)
+		r.Delete("/api/v1/data", businessHandler.ClearData)
 		r.Get("/api/v1/settings/threshold", businessHandler.GetThreshold)
 		r.Put("/api/v1/settings/threshold", businessHandler.UpdateThreshold)
 		r.Post("/api/import/cost-centers", importHandler.ImportCostCenters)
@@ -110,6 +117,7 @@ func main() {
 		r.Post("/api/import/plan", importHandler.ImportPlan)
 		r.Post("/api/import/fact", importHandler.ImportFact)
 		r.Get("/api/import/completeness", importHandler.CheckCompleteness)
+		r.Get("/api/import/logs", importHandler.GetLogs)
 	})
 
 	port := os.Getenv("PORT")

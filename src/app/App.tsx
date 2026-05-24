@@ -29,6 +29,7 @@ import { LandingPage } from "./components/LandingPage";
 import { RemindersPage } from "./components/RemindersPage";
 import { DocsPage } from "./components/DocsPage";
 import { DemoPage } from "./components/DemoPage";
+import { AdminPanel } from "./components/AdminPanel";
 import { BudgetIQMark } from "./components/brand/BudgetIQMark";
 import {
   clearStoredUser,
@@ -45,7 +46,7 @@ function BudgetIQLogo({ size = 32 }: { size?: number }) {
   return <BudgetIQMark size={size} />;
 }
 
-type Page = "dashboard" | "report" | "import" | "reminders" | "docs" | "demo" | "settings" | "profile";
+type Page = "dashboard" | "report" | "import" | "reminders" | "docs" | "demo" | "settings" | "profile" | "admin";
 type AuthMode = "login" | "register";
 
 const defaultAccountSettings: UserSettings = {
@@ -70,6 +71,7 @@ const pagePathMap: Record<Page, string> = {
   demo: "/demo",
   settings: "/settings",
   profile: "/profile",
+  admin: "/ops-console",
 };
 
 function resolvePageFromPath(pathname: string): Page | null {
@@ -82,6 +84,7 @@ function resolvePageFromPath(pathname: string): Page | null {
   if (pathname === "/demo") return "demo";
   if (pathname === "/settings") return "settings";
   if (pathname === "/profile") return "profile";
+  if (pathname === "/ops-console") return "admin";
   return null;
 }
 
@@ -103,6 +106,7 @@ function isPageAllowedForRole(page: Page, role: UserRole) {
   const perms = rolePermissions[role];
   if (page === "import") return perms.canImport;
   if (page === "settings") return perms.canSettings;
+  if (page === "admin") return role === "controller";
   return true;
 }
 
@@ -639,6 +643,8 @@ function AppContent() {
                       setThreshold(merged.threshold);
                       setDark(merged.theme === "dark");
                     }}
+                    userRole={authUser!.role}
+                    onOpenAdmin={() => handleNavigate("admin")}
                   />
                 )}
                 {page === "profile" && (
@@ -647,6 +653,7 @@ function AppContent() {
                     onUserChange={(user) => setAuthUser(user)}
                   />
                 )}
+                {page === "admin" && <AdminPanel />}
               </motion.div>
             </AnimatePresence>
           </main>

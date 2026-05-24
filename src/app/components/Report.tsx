@@ -236,7 +236,7 @@ export function Report({ threshold, onThresholdChange, userRole, allowedCostCent
     getReport({ from: periodFrom, to: periodTo, threshold: thresholdDecimal })
       .then((response) => {
         if (ignore) return;
-        setFullData(response.rows.map((row, index) => ({ ...row, id: index + 1 })));
+        setFullData((response.rows ?? []).map((row, index) => ({ ...row, id: index + 1 })));
       })
       .catch((error) => {
         if (ignore) return;

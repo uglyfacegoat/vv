@@ -13,6 +13,8 @@ import (
 
 	"backend/internal/models"
 	"backend/internal/repository"
+	"backend/pkg/auth"
+	"github.com/google/uuid"
 )
 
 type ImportHandler struct {
@@ -42,7 +44,12 @@ func (h *ImportHandler) ImportFact(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ImportHandler) CheckCompleteness(w http.ResponseWriter, r *http.Request) {
-	result, err := h.repo.CheckCompleteness(r.Context())
+	claims := auth.GetClaims(r.Context())
+	if claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	result, err := h.repo.CheckCompleteness(r.Context(), claims.UserID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -50,7 +57,35 @@ func (h *ImportHandler) CheckCompleteness(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (h *ImportHandler) GetLogs(w http.ResponseWriter, r *http.Request) {
+	claims := auth.GetClaims(r.Context())
+	if claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	limit := 20
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			http.Error(w, "limit must be positive integer", http.StatusBadRequest)
+			return
+		}
+		limit = parsed
+	}
+	logs, err := h.repo.GetImportLogs(r.Context(), claims.UserID, limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, logs)
+}
+
 func (h *ImportHandler) importCSV(w http.ResponseWriter, r *http.Request, kind string) {
+	claims := auth.GetClaims(r.Context())
+	if claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 	if err := r.ParseMultipartForm(12 << 20); err != nil {
 		http.Error(w, "multipart form with file is required", http.StatusBadRequest)
 		return
@@ -79,11 +114,15 @@ func (h *ImportHandler) importCSV(w http.ResponseWriter, r *http.Request, kind s
 	if len(result.Errors) > 0 {
 		status = "FAILED"
 	}
-	_ = h.repo.LogImport(r.Context(), kind, header.Filename, fileHash, status, result.Inserted, result.Updated, len(result.Errors))
+	_ = h.repo.LogImport(r.Context(), claims.UserID, kind, header.Filename, fileHash, status, result.Inserted, result.Updated, len(result.Errors))
 	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *ImportHandler) processCSV(r *http.Request, kind string, data []byte) models.ImportResult {
+	claims := auth.GetClaims(r.Context())
+	if claims == nil {
+		return models.ImportResult{Errors: []models.ImportError{{Row: 1, Message: "unauthorized"}}}
+	}
 	reader := csv.NewReader(strings.NewReader(strings.TrimPrefix(string(data), "\uFEFF")))
 	reader.FieldsPerRecord = -1
 	reader.TrimLeadingSpace = true
@@ -112,9 +151,9 @@ func (h *ImportHandler) processCSV(r *http.Request, kind string, data []byte) mo
 		case "items":
 			h.importItemRow(r, row, values, &result)
 		case "plan":
-			h.importPlanRow(r, row, values, seen, autoCreateRefs, &result)
+			h.importPlanRow(r, claims.UserID, row, values, seen, autoCreateRefs, &result)
 		case "fact":
-			h.importFactRow(r, row, values, seen, autoCreateRefs, &result)
+			h.importFactRow(r, claims.UserID, row, values, seen, autoCreateRefs, &result)
 		}
 	}
 	return result
@@ -169,24 +208,24 @@ func (h *ImportHandler) importItemRow(r *http.Request, row int, values map[strin
 	countUpsert(result, exists)
 }
 
-func (h *ImportHandler) importPlanRow(r *http.Request, row int, values map[string]string, seen map[string]bool, autoCreateRefs bool, result *models.ImportResult) {
+func (h *ImportHandler) importPlanRow(r *http.Request, userID uuid.UUID, row int, values map[string]string, seen map[string]bool, autoCreateRefs bool, result *models.ImportResult) {
 	period, ccID, itemID, amount, ok := h.parsePlanFactRow(r, row, values, "amount_plan", seen, autoCreateRefs, result)
 	if !ok {
 		return
 	}
-	if err := h.repo.UpsertPlan(r.Context(), models.Plan{Period: period, CCID: ccID, ItemID: itemID, AmountPlan: amount}); err != nil {
+	if err := h.repo.UpsertPlan(r.Context(), userID, models.Plan{Period: period, CCID: ccID, ItemID: itemID, AmountPlan: amount}); err != nil {
 		addImportError(result, row, err.Error())
 		return
 	}
 	result.Inserted++
 }
 
-func (h *ImportHandler) importFactRow(r *http.Request, row int, values map[string]string, seen map[string]bool, autoCreateRefs bool, result *models.ImportResult) {
+func (h *ImportHandler) importFactRow(r *http.Request, userID uuid.UUID, row int, values map[string]string, seen map[string]bool, autoCreateRefs bool, result *models.ImportResult) {
 	period, ccID, itemID, amount, ok := h.parsePlanFactRow(r, row, values, "amount_fact", seen, autoCreateRefs, result)
 	if !ok {
 		return
 	}
-	if err := h.repo.UpsertFact(r.Context(), models.Fact{Period: period, CCID: ccID, ItemID: itemID, AmountFact: amount}); err != nil {
+	if err := h.repo.UpsertFact(r.Context(), userID, models.Fact{Period: period, CCID: ccID, ItemID: itemID, AmountFact: amount}); err != nil {
 		addImportError(result, row, err.Error())
 		return
 	}

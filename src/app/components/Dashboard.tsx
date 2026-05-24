@@ -450,7 +450,7 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
     getReport({ from: "2025-01", to: "2026-12", threshold: 0.10 })
       .then((response) => {
         if (!ignore) {
-          setReportRows(response.rows);
+          setReportRows(response.rows ?? []);
           setLoadError(null);
         }
       })
@@ -518,6 +518,30 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
           <KPICard key={kpi.title} kpi={kpi} index={i} />
         ))}
       </div>
+
+      {scopedRows.length === 0 && !loadError && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-2xl bg-card border border-border p-8"
+          style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.04)" }}
+        >
+          <div className="max-w-2xl">
+            <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-4">
+              <Activity className="w-6 h-6 text-primary" />
+            </div>
+            <h2 className="text-foreground tracking-[-0.01em]" style={{ fontSize: "18px", fontWeight: 600 }}>
+              Данных для визуализации пока нет
+            </h2>
+            <p className="text-[13px] text-muted-foreground mt-2 leading-relaxed">
+              Для этого аккаунта ещё не загружены строки plan/fact. Импортируйте CSV или добавьте строки в редакторе данных, после этого графики и heatmap появятся автоматически.
+            </p>
+          </div>
+        </motion.div>
+      )}
+
+      {scopedRows.length > 0 && (
+        <>
 
       {/* Chart: Plan vs Fact by period */}
       <motion.div
@@ -942,6 +966,8 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
           </table>
         </div>
       </motion.div>
+        </>
+      )}
     </div>
   );
 }

@@ -9,6 +9,7 @@ import (
 
 	"backend/internal/models"
 	"backend/internal/repository"
+	"backend/pkg/auth"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -178,13 +179,18 @@ func (h *BusinessHandler) DeleteItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *BusinessHandler) SavePlan(w http.ResponseWriter, r *http.Request) {
+	claims := auth.GetClaims(r.Context())
+	if claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 	var p models.Plan
 	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
 
-	if err := h.repo.CreatePlan(r.Context(), &p); err != nil {
+	if err := h.repo.CreatePlan(r.Context(), claims.UserID, &p); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -193,13 +199,18 @@ func (h *BusinessHandler) SavePlan(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *BusinessHandler) SaveFact(w http.ResponseWriter, r *http.Request) {
+	claims := auth.GetClaims(r.Context())
+	if claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 	var f models.Fact
 	if err := json.NewDecoder(r.Body).Decode(&f); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
 
-	if err := h.repo.CreateFact(r.Context(), &f); err != nil {
+	if err := h.repo.CreateFact(r.Context(), claims.UserID, &f); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -278,6 +289,11 @@ func (h *BusinessHandler) UpdateThreshold(w http.ResponseWriter, r *http.Request
 }
 
 func (h *BusinessHandler) buildReportFromRequest(w http.ResponseWriter, r *http.Request) (models.ReportResponse, bool) {
+	claims := auth.GetClaims(r.Context())
+	if claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return models.ReportResponse{}, false
+	}
 	from := r.URL.Query().Get("from")
 	to := r.URL.Query().Get("to")
 	if from == "" {
@@ -327,10 +343,112 @@ func (h *BusinessHandler) buildReportFromRequest(w http.ResponseWriter, r *http.
 		status = &raw
 	}
 
-	report, err := h.repo.GetReport(r.Context(), from, to, ccID, itemType, status, threshold)
+	report, err := h.repo.GetReport(r.Context(), claims.UserID, from, to, ccID, itemType, status, threshold)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return models.ReportResponse{}, false
 	}
 	return report, true
+}
+
+func (h *BusinessHandler) GetDataEntries(w http.ResponseWriter, r *http.Request) {
+	claims := auth.GetClaims(r.Context())
+	if claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	kind := strings.TrimSpace(chi.URLParam(r, "kind"))
+	if kind != "plan" && kind != "fact" {
+		http.Error(w, "kind must be plan or fact", http.StatusBadRequest)
+		return
+	}
+	limit := 200
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			http.Error(w, "limit must be positive integer", http.StatusBadRequest)
+			return
+		}
+		limit = parsed
+	}
+	entries, err := h.repo.GetDataEntries(r.Context(), claims.UserID, kind, limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, entries)
+}
+
+func (h *BusinessHandler) UpsertDataEntry(w http.ResponseWriter, r *http.Request) {
+	claims := auth.GetClaims(r.Context())
+	if claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	kind := strings.TrimSpace(chi.URLParam(r, "kind"))
+	if kind != "plan" && kind != "fact" {
+		http.Error(w, "kind must be plan or fact", http.StatusBadRequest)
+		return
+	}
+	var req models.UpsertDataEntryRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if req.Period == "" || req.CCID <= 0 || req.ItemID <= 0 || req.Amount < 0 {
+		http.Error(w, "period, cc_id, item_id and non-negative amount are required", http.StatusBadRequest)
+		return
+	}
+	if kind == "plan" {
+		err := h.repo.UpsertPlan(r.Context(), claims.UserID, models.Plan{Period: req.Period, CCID: req.CCID, ItemID: req.ItemID, AmountPlan: req.Amount})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	} else {
+		err := h.repo.UpsertFact(r.Context(), claims.UserID, models.Fact{Period: req.Period, CCID: req.CCID, ItemID: req.ItemID, AmountFact: req.Amount})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (h *BusinessHandler) DeleteDataEntry(w http.ResponseWriter, r *http.Request) {
+	claims := auth.GetClaims(r.Context())
+	if claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	kind := strings.TrimSpace(chi.URLParam(r, "kind"))
+	if kind != "plan" && kind != "fact" {
+		http.Error(w, "kind must be plan or fact", http.StatusBadRequest)
+		return
+	}
+	period := strings.TrimSpace(r.URL.Query().Get("period"))
+	ccID, ccErr := strconv.Atoi(r.URL.Query().Get("cc_id"))
+	itemID, itemErr := strconv.Atoi(r.URL.Query().Get("item_id"))
+	if period == "" || ccErr != nil || itemErr != nil {
+		http.Error(w, "period, cc_id and item_id are required", http.StatusBadRequest)
+		return
+	}
+	if err := h.repo.DeleteDataEntry(r.Context(), claims.UserID, kind, period, ccID, itemID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (h *BusinessHandler) ClearData(w http.ResponseWriter, r *http.Request) {
+	claims := auth.GetClaims(r.Context())
+	if claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if err := h.repo.ClearUserPlanFact(r.Context(), claims.UserID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }

@@ -24,16 +24,25 @@ import {
 import {
   createCostCenter,
   createItem,
+  clearPlanFactData,
+  deleteDataEntry,
   deleteCostCenter,
   deleteItem,
+  getDataEntries,
+  getImportLogs,
   getCostCenters,
   getItems,
   saveThresholdSetting,
   updateAccountSettings,
   updateCostCenter,
   updateItem,
+  upsertDataEntry,
+  type DataEntry,
+  type DataKind,
+  type ImportLogEntry,
   type UserSettings,
 } from "../api";
+import type { UserRole } from "../auth";
 
 interface SettingSection {
   id: string;
@@ -91,9 +100,18 @@ interface SettingsPageProps {
   onThresholdChange: (value: number) => void;
   accountSettings: UserSettings;
   onAccountSettingsChange: (settings: UserSettings) => void;
+  userRole: UserRole;
+  onOpenAdmin: () => void;
 }
 
-export function SettingsPage({ threshold, onThresholdChange, accountSettings, onAccountSettingsChange }: SettingsPageProps) {
+export function SettingsPage({
+  threshold,
+  onThresholdChange,
+  accountSettings,
+  onAccountSettingsChange,
+  userRole,
+  onOpenAdmin,
+}: SettingsPageProps) {
   const [activeSection, setActiveSection] = useState("thresholds");
   const [overspendThreshold, setOverspendThreshold] = useState(accountSettings.overspend_threshold);
   const [savingThreshold, setSavingThreshold] = useState(accountSettings.saving_threshold);
@@ -114,6 +132,12 @@ export function SettingsPage({ threshold, onThresholdChange, accountSettings, on
   const [costCenterDraft, setCostCenterDraft] = useState({ code: "", name: "", owner: "", active: true });
   const [expenseItemDraft, setExpenseItemDraft] = useState({ code: "", name: "", type: "OPEX" as "OPEX" | "CAPEX", active: true });
   const [refsLoading, setRefsLoading] = useState(false);
+  const [dataKind, setDataKind] = useState<DataKind>("plan");
+  const [dataEntries, setDataEntries] = useState<DataEntry[]>([]);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [dataSearch, setDataSearch] = useState("");
+  const [dataDraft, setDataDraft] = useState({ period: "", cc_id: "", item_id: "", amount: "" });
+  const [importLogs, setImportLogs] = useState<ImportLogEntry[]>([]);
 
   const makeId = (prefix: string) => `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
@@ -161,6 +185,27 @@ export function SettingsPage({ threshold, onThresholdChange, accountSettings, on
       ignore = true;
     };
   }, []);
+
+  const loadDataEntries = async (kind = dataKind) => {
+    setDataLoading(true);
+    try {
+      const [entries, logs] = await Promise.all([getDataEntries(kind, 300), getImportLogs(20)]);
+      setDataEntries(entries);
+      setImportLogs(logs);
+    } catch (error) {
+      toast.error("Не удалось загрузить строки или лог импортов", {
+        description: error instanceof Error ? error.message : "Ошибка backend",
+      });
+    } finally {
+      setDataLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeSection === "data") {
+      loadDataEntries(dataKind);
+    }
+  }, [activeSection, dataKind]);
 
   const handleAddCostCenter = async () => {
     const code = newCostCenter.code.trim().toUpperCase();
@@ -372,11 +417,54 @@ export function SettingsPage({ threshold, onThresholdChange, accountSettings, on
     }
   };
 
-  const handleClearData = () => {
-    setShowConfirmClear(false);
-    toast.success("Данные очищены", {
-      description: "Витрина PostgreSQL очищена. Справочники сохранены.",
-    });
+  const handleSaveDataEntry = async () => {
+    const period = dataDraft.period.trim();
+    const ccID = Number(dataDraft.cc_id);
+    const itemID = Number(dataDraft.item_id);
+    const amount = Number(dataDraft.amount);
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period) || !ccID || !itemID || Number.isNaN(amount) || amount < 0) {
+      toast.error("Проверьте поля строки", {
+        description: "Период: YYYY-MM, cc_id/item_id: числа, сумма: >= 0",
+      });
+      return;
+    }
+    try {
+      await upsertDataEntry(dataKind, { period, cc_id: ccID, item_id: itemID, amount });
+      setDataDraft({ period: "", cc_id: "", item_id: "", amount: "" });
+      await loadDataEntries(dataKind);
+      toast.success(`${dataKind}: строка сохранена`);
+    } catch (error) {
+      toast.error("Не удалось сохранить строку", {
+        description: error instanceof Error ? error.message : "Ошибка backend",
+      });
+    }
+  };
+
+  const handleDeleteDataEntry = async (entry: DataEntry) => {
+    try {
+      await deleteDataEntry(entry.kind, { period: entry.period, cc_id: entry.cc_id, item_id: entry.item_id });
+      setDataEntries((prev) => prev.filter((item) => !(item.kind === entry.kind && item.period === entry.period && item.cc_id === entry.cc_id && item.item_id === entry.item_id)));
+      toast.success(`${entry.kind}: строка удалена`);
+    } catch (error) {
+      toast.error("Не удалось удалить строку", {
+        description: error instanceof Error ? error.message : "Ошибка backend",
+      });
+    }
+  };
+
+  const handleClearData = async () => {
+    try {
+      await clearPlanFactData();
+      setShowConfirmClear(false);
+      setDataEntries([]);
+      toast.success("Данные очищены", {
+        description: "Удалены записи plan и fact текущей компании. Справочники сохранены.",
+      });
+    } catch (error) {
+      toast.error("Не удалось очистить данные", {
+        description: error instanceof Error ? error.message : "Ошибка backend",
+      });
+    }
   };
 
   const handleResetDefaults = () => {
@@ -390,6 +478,30 @@ export function SettingsPage({ threshold, onThresholdChange, accountSettings, on
     setNotifyWeekly(false);
     setEmailNotify(true);
     toast.info("Настройки сброшены", { description: "Нажмите сохранить, чтобы записать значения в аккаунт" });
+  };
+
+  const filteredDataEntries = dataEntries.filter((entry) => {
+    const q = dataSearch.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      entry.period.includes(q)
+      || entry.cc_name.toLowerCase().includes(q)
+      || entry.item_name.toLowerCase().includes(q)
+      || String(entry.cc_id).includes(q)
+      || String(entry.item_id).includes(q)
+    );
+  });
+
+  const formatImportDate = (value: string) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value.slice(0, 16);
+    return new Intl.DateTimeFormat("ru-RU", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(date);
   };
 
   return (
@@ -658,6 +770,30 @@ export function SettingsPage({ threshold, onThresholdChange, accountSettings, on
               </div>
 
               <div className="space-y-3">
+                {userRole === "controller" && (
+                  <div className="rounded-xl bg-[#6366f1]/5 border border-[#6366f1]/15 p-4">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0 bg-[#6366f1]/10">
+                        <Shield className="w-5 h-5 text-[#6366f1]" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] text-foreground" style={{ fontWeight: 600 }}>Админ-панель</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          Сводка по аккаунтам, связкам, данным и состоянию системы
+                        </p>
+                      </div>
+                      <button
+                        onClick={onOpenAdmin}
+                        className="inline-flex items-center gap-2 rounded-lg bg-[#6366f1] px-3 py-2 text-[12px] text-white hover:bg-[#5558e8] transition-colors shrink-0"
+                        style={{ fontWeight: 600 }}
+                      >
+                        Открыть
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {rolesList.map((r) => (
                   <div
                     key={r.role}
@@ -1151,9 +1287,9 @@ export function SettingsPage({ threshold, onThresholdChange, accountSettings, on
                 {/* Stats */}
                 <div className="grid grid-cols-3 gap-3">
                   {[
-                    { label: "Записей в plan", value: "2 480", color: "#6366f1" },
-                    { label: "Записей в fact", value: "2 350", color: "#06b6d4" },
-                    { label: "Импортов всего", value: "47", color: "#10b981" },
+                    { label: `Строк ${dataKind}`, value: String(dataEntries.length), color: "#6366f1" },
+                    { label: "Показано", value: String(filteredDataEntries.length), color: "#06b6d4" },
+                    { label: "Лимит выборки", value: "300", color: "#10b981" },
                   ].map((s) => (
                     <div key={s.label} className="rounded-xl bg-muted/30 border border-border p-3 text-center">
                       <p className="text-[20px] tabular-nums" style={{ fontWeight: 600, color: s.color }}>{s.value}</p>
@@ -1162,22 +1298,107 @@ export function SettingsPage({ threshold, onThresholdChange, accountSettings, on
                   ))}
                 </div>
 
+                <div className="rounded-xl bg-muted/30 border border-border p-4 space-y-4">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                      <p className="text-[13px] text-foreground" style={{ fontWeight: 500 }}>Редактор строк plan/fact</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">Исправьте лишнюю строку после CSV без повторного импорта файла</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {(["plan", "fact"] as DataKind[]).map((kind) => (
+                        <button
+                          key={kind}
+                          onClick={() => setDataKind(kind)}
+                          className={`px-3 py-2 rounded-lg text-[12px] transition-all ${
+                            dataKind === kind ? "bg-primary/10 text-primary" : "bg-card border border-border text-muted-foreground hover:text-foreground"
+                          }`}
+                          style={{ fontWeight: 500 }}
+                        >
+                          {kind}
+                        </button>
+                      ))}
+                      <button
+                        onClick={() => loadDataEntries(dataKind)}
+                        className="px-3 py-2 rounded-lg bg-card border border-border text-[12px] text-muted-foreground hover:text-foreground transition-all"
+                        style={{ fontWeight: 500 }}
+                      >
+                        Обновить
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
+                    <input value={dataDraft.period} onChange={(e) => setDataDraft((prev) => ({ ...prev, period: e.target.value }))} placeholder="period YYYY-MM" className="px-3 py-2 rounded-lg bg-card border border-border text-[12px] outline-none focus:border-primary/40" />
+                    <input value={dataDraft.cc_id} onChange={(e) => setDataDraft((prev) => ({ ...prev, cc_id: e.target.value }))} placeholder="cc_id" className="px-3 py-2 rounded-lg bg-card border border-border text-[12px] outline-none focus:border-primary/40" />
+                    <input value={dataDraft.item_id} onChange={(e) => setDataDraft((prev) => ({ ...prev, item_id: e.target.value }))} placeholder="item_id" className="px-3 py-2 rounded-lg bg-card border border-border text-[12px] outline-none focus:border-primary/40" />
+                    <input value={dataDraft.amount} onChange={(e) => setDataDraft((prev) => ({ ...prev, amount: e.target.value }))} placeholder={dataKind === "plan" ? "amount_plan" : "amount_fact"} className="px-3 py-2 rounded-lg bg-card border border-border text-[12px] outline-none focus:border-primary/40" />
+                    <button onClick={handleSaveDataEntry} className="px-3 py-2 rounded-lg bg-[#2563eb] text-white text-[12px] hover:bg-[#1d4ed8] transition-all" style={{ fontWeight: 500 }}>Сохранить</button>
+                  </div>
+
+                  <input
+                    value={dataSearch}
+                    onChange={(e) => setDataSearch(e.target.value)}
+                    placeholder="Поиск по периоду, ЦФО, статье, id..."
+                    className="w-full px-3 py-2 rounded-lg bg-card border border-border text-[12px] outline-none focus:border-primary/40"
+                  />
+
+                  <div className="max-h-[360px] overflow-auto rounded-lg border border-border bg-card">
+                    <table className="w-full text-[12px]">
+                      <thead className="sticky top-0 bg-muted text-muted-foreground">
+                        <tr>
+                          {["Период", "ЦФО", "Статья", "Тип", "Сумма", ""].map((col) => (
+                            <th key={col} className="px-3 py-2 text-left" style={{ fontWeight: 500 }}>{col}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dataLoading ? (
+                          <tr><td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">Загрузка...</td></tr>
+                        ) : filteredDataEntries.length === 0 ? (
+                          <tr><td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">Строк пока нет</td></tr>
+                        ) : filteredDataEntries.map((entry) => (
+                          <tr key={`${entry.kind}-${entry.period}-${entry.cc_id}-${entry.item_id}`} className="border-t border-border/60">
+                            <td className="px-3 py-2 tabular-nums">{entry.period}</td>
+                            <td className="px-3 py-2">{entry.cc_name} <span className="text-muted-foreground">#{entry.cc_id}</span></td>
+                            <td className="px-3 py-2">{entry.item_name} <span className="text-muted-foreground">#{entry.item_id}</span></td>
+                            <td className="px-3 py-2">{entry.type}</td>
+                            <td className="px-3 py-2 tabular-nums">{entry.amount.toLocaleString("ru-RU")}</td>
+                            <td className="px-3 py-2 text-right">
+                              <button
+                                onClick={() => setDataDraft({ period: entry.period, cc_id: String(entry.cc_id), item_id: String(entry.item_id), amount: String(entry.amount) })}
+                                className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteDataEntry(entry)}
+                                className="p-1.5 rounded-lg text-muted-foreground hover:text-[#ef4444] hover:bg-[#ef4444]/10 transition-all"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
                 {/* Import log */}
                 <div className="rounded-xl bg-muted/30 border border-border p-4">
-                  <p className="text-[13px] text-foreground mb-3" style={{ fontWeight: 500 }}>Последние импорты (imports_log)</p>
+                  <p className="text-[13px] text-foreground mb-3" style={{ fontWeight: 500 }}>Последние импорты текущей компании</p>
                   <div className="space-y-2">
-                    {[
-                      { date: "2026-02-19 14:32", kind: "fact", file: "fact_2026_Q1.csv", status: "SUCCESS", rows: 580 },
-                      { date: "2026-02-19 14:28", kind: "plan", file: "plan_2026_Q1.csv", status: "SUCCESS", rows: 612 },
-                      { date: "2026-02-18 09:15", kind: "items", file: "items_v3.csv", status: "FAILED", rows: 0 },
-                      { date: "2026-02-17 16:45", kind: "cost_centers", file: "cc_update.csv", status: "SUCCESS", rows: 8 },
-                    ].map((log, i) => (
-                      <div key={i} className="flex items-center gap-3 text-[12px] py-2 border-b border-border/50 last:border-0">
-                        <span className="text-muted-foreground tabular-nums w-32 shrink-0">{log.date}</span>
+                    {importLogs.length === 0 ? (
+                      <div className="rounded-xl bg-card border border-border px-4 py-6 text-center text-[12px] text-muted-foreground">
+                        Импортов у этой компании пока нет
+                      </div>
+                    ) : importLogs.map((log, i) => (
+                      <div key={`${log.imported_at}-${log.kind}-${i}`} className="flex items-center gap-3 text-[12px] py-2 border-b border-border/50 last:border-0">
+                        <span className="text-muted-foreground tabular-nums w-32 shrink-0">{formatImportDate(log.imported_at)}</span>
                         <span className="px-2 py-0.5 rounded-md bg-primary/10 text-primary" style={{ fontWeight: 500 }}>
                           {log.kind}
                         </span>
-                        <span className="text-foreground flex-1 truncate">{log.file}</span>
+                        <span className="text-foreground flex-1 truncate">{log.filename}</span>
                         <span
                           className={`px-2 py-0.5 rounded-md text-[11px] ${
                             log.status === "SUCCESS" ? "bg-[#10b981]/10 text-[#10b981]" : "bg-[#ef4444]/10 text-[#ef4444]"
@@ -1186,7 +1407,7 @@ export function SettingsPage({ threshold, onThresholdChange, accountSettings, on
                         >
                           {log.status}
                         </span>
-                        <span className="text-muted-foreground tabular-nums">{log.rows} rows</span>
+                        <span className="text-muted-foreground tabular-nums">{log.inserted + log.updated} rows</span>
                       </div>
                     ))}
                   </div>

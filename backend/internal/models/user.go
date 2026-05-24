@@ -12,15 +12,18 @@ type Role struct {
 }
 
 type User struct {
-	ID           uuid.UUID    `json:"id"`
-	Email        string       `json:"email"`
-	PasswordHash string       `json:"-"`
-	RoleID       int          `json:"role_id"`
-	CCID         *int         `json:"cc_id,omitempty"`
-	Profile      UserProfile  `json:"profile"`
-	Settings     UserSettings `json:"settings"`
-	CreatedAt    time.Time    `json:"created_at"`
-	UpdatedAt    time.Time    `json:"updated_at"`
+	ID            uuid.UUID    `json:"id"`
+	Email         string       `json:"email"`
+	PasswordHash  string       `json:"-"`
+	RoleID        int          `json:"role_id"`
+	CCID          *int         `json:"cc_id,omitempty"`
+	EnterpriseID  *uuid.UUID   `json:"enterprise_id,omitempty"`
+	EnterpriseKey string       `json:"enterprise_key,omitempty"`
+	Enterprise    string       `json:"enterprise,omitempty"`
+	Profile       UserProfile  `json:"profile"`
+	Settings      UserSettings `json:"settings"`
+	CreatedAt     time.Time    `json:"created_at"`
+	UpdatedAt     time.Time    `json:"updated_at"`
 }
 
 type UserProfile struct {
