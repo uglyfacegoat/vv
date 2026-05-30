@@ -31,6 +31,14 @@ const statusRows = [
   { label: "NO_PLAN", ru: "Нет плана", rule: "plan = 0 и fact > 0", color: "#94a3b8" },
 ];
 
+const oneCEndpoints = [
+  { method: "GET", path: "/api/1c/status", desc: "Проверка связи" },
+  { method: "POST", path: "/api/1c/cost-centers", desc: "Центры затрат" },
+  { method: "POST", path: "/api/1c/items", desc: "Статьи затрат" },
+  { method: "POST", path: "/api/1c/plan", desc: "План" },
+  { method: "POST", path: "/api/1c/fact", desc: "Факт" },
+];
+
 export function DocsPage() {
   return (
     <div className="max-w-[1400px] mx-auto space-y-6">
@@ -142,6 +150,42 @@ export function DocsPage() {
           style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.04)" }}
         >
           <div className="px-5 py-4 border-b border-border flex items-center gap-2">
+            <Database className="w-4 h-4 text-[#f59e0b]" />
+            <h3 className="text-[15px] text-foreground" style={{ fontWeight: 600 }}>
+              REST-обмен с 1С
+            </h3>
+          </div>
+          <div className="p-4 text-[12px] text-muted-foreground space-y-3">
+            <p>
+              Авторизация: <code className="text-primary bg-primary/10 px-1.5 py-0.5 rounded">X-1C-Token</code>
+            </p>
+            <div className="space-y-2">
+              {oneCEndpoints.map((row) => (
+                <div key={row.path} className="rounded-xl bg-muted/30 border border-border p-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <code className="text-[11px] text-foreground">{row.path}</code>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">{row.desc}</p>
+                  </div>
+                  <span className="text-[10px] text-[#f59e0b] bg-[#f59e0b]/10 px-2 py-1 rounded-lg shrink-0">
+                    {row.method}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p>
+              План и факт записываются от сервисного пользователя <span className="text-foreground">ONEC_USER_EMAIL</span>.
+            </p>
+          </div>
+        </motion.section>
+
+        <motion.section
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="rounded-2xl bg-card border border-border overflow-hidden"
+          style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.04)" }}
+        >
+          <div className="px-5 py-4 border-b border-border flex items-center gap-2">
             <BookOpen className="w-4 h-4 text-[#8b5cf6]" />
             <h3 className="text-[15px] text-foreground" style={{ fontWeight: 600 }}>
               Процесс использования
@@ -158,4 +202,3 @@ export function DocsPage() {
     </div>
   );
 }
-

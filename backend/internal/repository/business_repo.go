@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
 
 	"backend/internal/models"
@@ -62,7 +63,7 @@ func (r *BusinessRepository) CreateCostCenter(ctx context.Context, cc *models.Co
 func (r *BusinessRepository) UpsertCostCenter(ctx context.Context, cc models.CostCenter) (bool, error) {
 	tag, err := r.db.Exec(ctx, `
 		INSERT INTO cost_centers (cc_id, code, name, owner, active)
-		VALUES ($1, COALESCE(NULLIF($2, ''), 'CC-' || LPAD($1::text, 3, '0')), $3, $4, $5)
+		VALUES ($1::int, COALESCE(NULLIF($2, ''), 'CC-' || LPAD($1::int::text, 3, '0')), $3, $4, $5)
 		ON CONFLICT (cc_id) DO UPDATE
 		SET code = EXCLUDED.code, name = EXCLUDED.name, owner = EXCLUDED.owner, active = EXCLUDED.active
 	`, cc.ID, cc.Code, cc.Name, cc.Owner, cc.Active)
@@ -124,7 +125,7 @@ func (r *BusinessRepository) CreateItem(ctx context.Context, item *models.Item) 
 func (r *BusinessRepository) UpsertItem(ctx context.Context, item models.Item) (bool, error) {
 	tag, err := r.db.Exec(ctx, `
 		INSERT INTO items (item_id, code, name, type, active)
-		VALUES ($1, COALESCE(NULLIF($2, ''), 'ITM-' || LPAD($1::text, 3, '0')), $3, $4, $5)
+		VALUES ($1::int, COALESCE(NULLIF($2, ''), 'ITM-' || LPAD($1::int::text, 3, '0')), $3, $4, $5)
 		ON CONFLICT (item_id) DO UPDATE
 		SET code = EXCLUDED.code, name = EXCLUDED.name, type = EXCLUDED.type, active = EXCLUDED.active
 	`, item.ID, item.Code, item.Name, item.Type, item.Active)
@@ -427,10 +428,26 @@ func (r *BusinessRepository) ClearUserPlanFact(ctx context.Context, userID uuid.
 }
 
 func (r *BusinessRepository) LogImport(ctx context.Context, userID uuid.UUID, kind, filename, hash, status string, inserted, updated, errorCount int) error {
+	metadata, _ := json.Marshal(map[string]any{
+		"kind":     kind,
+		"filename": filename,
+		"hash":     hash,
+		"status":   status,
+		"inserted": inserted,
+		"updated":  updated,
+		"errors":   errorCount,
+	})
 	_, err := r.db.Exec(ctx, `
-		INSERT INTO imports_log (user_id, enterprise_id, kind, filename, file_hash, status, inserted_count, updated_count, error_count)
-		SELECT $1, enterprise_id, $2, $3, $4, $5, $6, $7, $8 FROM users WHERE id = $1
-	`, userID, kind, filename, hash, status, inserted, updated, errorCount)
+		WITH current_user AS (
+			SELECT id, enterprise_id FROM users WHERE id = $1
+		), imported AS (
+			INSERT INTO imports_log (user_id, enterprise_id, kind, filename, file_hash, status, inserted_count, updated_count, error_count)
+			SELECT id, enterprise_id, $2, $3, $4, $5, $6, $7, $8 FROM current_user
+			RETURNING id, enterprise_id, user_id
+		)
+		INSERT INTO audit_log (enterprise_id, user_id, action, entity, entity_id, metadata)
+		SELECT enterprise_id, user_id, 'import.' || $2, 'imports_log', id::text, $9::jsonb FROM imported
+	`, userID, kind, filename, hash, status, inserted, updated, errorCount, string(metadata))
 	return err
 }
 

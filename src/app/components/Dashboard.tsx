@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, useInView, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import {
@@ -15,8 +15,6 @@ import {
 import {
   AreaChart,
   Area,
-  BarChart,
-  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -250,7 +248,7 @@ function CustomTooltip({ active, payload, label }: any) {
             <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
             <span className="text-muted-foreground">{entry.name === "plan" ? "План" : "Факт"}:</span>
             <span className="text-foreground" style={{ fontWeight: 500 }}>
-              {(entry.value / 1000).toFixed(1)}M
+              {(entry.value / 1000000).toFixed(2)}M
             </span>
           </div>
         ))}
@@ -264,7 +262,7 @@ function CustomTooltip({ active, payload, label }: any) {
               }}
             >
               {payload[1].value - payload[0].value > 0 ? "+" : ""}
-              {((payload[1].value - payload[0].value) / 1000).toFixed(1)}M (
+              {((payload[1].value - payload[0].value) / 1000000).toFixed(2)}M (
               {(((payload[1].value - payload[0].value) / payload[0].value) * 100).toFixed(1)}%)
             </span>
           </div>
@@ -281,10 +279,6 @@ interface DashboardProps {
 }
 
 export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
-  const chartRef = useRef<HTMLDivElement>(null);
-  const chartInView = useInView(chartRef, { once: true, margin: "-100px" });
-  const heatmapRef = useRef<HTMLDivElement>(null);
-  const heatmapInView = useInView(heatmapRef, { once: true, margin: "-100px" });
   const [isDark, setIsDark] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState("2025-07 — 2026-02");
   const [pinnedPeriod, setPinnedPeriod] = useState<string | null>(null);
@@ -410,7 +404,7 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
     if (!managerScoped) return rows;
     const scoped = rows.filter((row) => allowedCostCenterSet.has(row.cc.name));
     return scoped.length > 0 ? scoped : rows.slice(0, 1);
-  }, [allowedCostCenterSet, managerScoped]);
+  }, [allowedCostCenterSet, costCenters, heatmapRaw, managerScoped]);
 
   const pinnedData = pinnedPeriod ? chartData.find((d) => d.period === pinnedPeriod) : null;
   const pinnedBreakdown = useMemo(() => {
@@ -419,7 +413,7 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
     if (!managerScoped) return rows;
     const scoped = rows.filter((row) => allowedCostCenterSet.has(row.cc));
     return scoped.length > 0 ? scoped : rows.slice(0, 1);
-  }, [allowedCostCenterSet, managerScoped, pinnedPeriod]);
+  }, [allowedCostCenterSet, managerScoped, periodBreakdown, pinnedPeriod]);
   const pinnedSummary = useMemo(() => {
     if (!pinnedBreakdown || pinnedBreakdown.length === 0) {
       return pinnedData ? { plan: pinnedData.plan, fact: pinnedData.fact } : null;
@@ -445,22 +439,38 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
     }
   };
 
-  useEffect(() => {
-    let ignore = false;
-    getReport({ from: "2025-01", to: "2026-12", threshold: 0.10 })
+  const loadReport = useCallback((signal?: { ignore: boolean }) => {
+    return getReport({ from: "2025-01", to: "2026-12", threshold: 0.10 })
       .then((response) => {
-        if (!ignore) {
+        if (!signal?.ignore) {
           setReportRows(response.rows ?? []);
           setLoadError(null);
         }
       })
       .catch((error) => {
-        if (!ignore) setLoadError(error instanceof Error ? error.message : "Не удалось загрузить dashboard");
+        if (!signal?.ignore) setLoadError(error instanceof Error ? error.message : "Не удалось загрузить dashboard");
       });
-    return () => {
-      ignore = true;
-    };
   }, []);
+
+  useEffect(() => {
+    const signal = { ignore: false };
+    loadReport(signal);
+    return () => {
+      signal.ignore = true;
+    };
+  }, [loadReport]);
+
+  useEffect(() => {
+    const refresh = () => {
+      loadReport();
+    };
+    window.addEventListener("budgetiq:data-imported", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.removeEventListener("budgetiq:data-imported", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [loadReport]);
 
   useEffect(() => {
     const observer = new MutationObserver(() => {
@@ -545,9 +555,8 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
 
       {/* Chart: Plan vs Fact by period */}
       <motion.div
-        ref={chartRef}
         initial={{ opacity: 0, y: 30 }}
-        animate={chartInView ? { opacity: 1, y: 0 } : {}}
+        animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, ease: [0.4, 0, 0.2, 1] }}
         className="rounded-2xl bg-card border border-border p-6"
         style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.04)" }}
@@ -558,7 +567,7 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
               План vs Факт по месяцам
             </h2>
             <p className="text-[13px] text-muted-foreground mt-0.5">
-              Исполнение бюджета, тыс. руб.
+              Исполнение бюджета
             </p>
           </div>
           <div className="flex items-center gap-4">
@@ -879,9 +888,8 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
 
       {/* Heatmap: Y=ЦФО, X=статьи затрат, value=delta_pct */}
       <motion.div
-        ref={heatmapRef}
         initial={{ opacity: 0, y: 30 }}
-        animate={heatmapInView ? { opacity: 1, y: 0 } : {}}
+        animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, ease: [0.4, 0, 0.2, 1] }}
         className="rounded-2xl bg-card border border-border p-6"
         style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.04)" }}
@@ -938,7 +946,7 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
                 <motion.tr
                   key={row.cc.cc_id}
                   initial={{ opacity: 0, x: -20 }}
-                  animate={heatmapInView ? { opacity: 1, x: 0 } : {}}
+                  animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: ccIdx * 0.05, duration: 0.4 }}
                 >
                   <td className="text-[13px] text-foreground pr-4 py-1.5" style={{ fontWeight: 500 }}>

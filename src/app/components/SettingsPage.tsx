@@ -95,6 +95,15 @@ const initialExpenseItems: ExpenseItem[] = [
   { id: "item-3", code: "ITM-221", name: "Оборудование", type: "CAPEX", active: true },
 ];
 
+const MAIN_THRESHOLD_MIN = 1;
+const MAIN_THRESHOLD_MAX = 30;
+const MAIN_THRESHOLD_DEFAULT = 10;
+
+function thresholdPosition(value: number) {
+  const clamped = Math.min(MAIN_THRESHOLD_MAX, Math.max(MAIN_THRESHOLD_MIN, value));
+  return ((clamped - MAIN_THRESHOLD_MIN) / (MAIN_THRESHOLD_MAX - MAIN_THRESHOLD_MIN)) * 100;
+}
+
 interface SettingsPageProps {
   threshold: number;
   onThresholdChange: (value: number) => void;
@@ -138,6 +147,8 @@ export function SettingsPage({
   const [dataSearch, setDataSearch] = useState("");
   const [dataDraft, setDataDraft] = useState({ period: "", cc_id: "", item_id: "", amount: "" });
   const [importLogs, setImportLogs] = useState<ImportLogEntry[]>([]);
+  const thresholdPercent = thresholdPosition(threshold);
+  const defaultThresholdPercent = thresholdPosition(MAIN_THRESHOLD_DEFAULT);
 
   const makeId = (prefix: string) => `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
@@ -625,16 +636,27 @@ export function SettingsPage({
                   </div>
                   <input
                     type="range"
-                    min={1}
-                    max={30}
+                    min={MAIN_THRESHOLD_MIN}
+                    max={MAIN_THRESHOLD_MAX}
                     value={threshold}
-                    onChange={(e) => onThresholdChange(Math.min(30, Math.max(1, Number(e.target.value) || 1)))}
+                    onChange={(e) => onThresholdChange(Math.min(MAIN_THRESHOLD_MAX, Math.max(MAIN_THRESHOLD_MIN, Number(e.target.value) || MAIN_THRESHOLD_MIN)))}
                     className="threshold-range"
                   />
-                  <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-                    <span>1%</span>
-                    <span>10% (default)</span>
-                    <span>30%</span>
+                  <div className="relative h-8 text-[10px] text-muted-foreground mt-1">
+                    <span className="absolute left-0 top-0">{MAIN_THRESHOLD_MIN}%</span>
+                    <span
+                      className="absolute top-0 -translate-x-1/2 text-primary tabular-nums"
+                      style={{ left: `${thresholdPercent}%`, fontWeight: 600 }}
+                    >
+                      {threshold}%
+                    </span>
+                    <span className="absolute right-0 top-0">{MAIN_THRESHOLD_MAX}%</span>
+                    <span
+                      className="absolute top-4 -translate-x-1/2"
+                      style={{ left: `${defaultThresholdPercent}%` }}
+                    >
+                      {MAIN_THRESHOLD_DEFAULT}% default
+                    </span>
                   </div>
                 </div>
 

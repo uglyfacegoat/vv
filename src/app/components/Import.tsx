@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { toast } from "sonner";
 import {
@@ -19,7 +19,12 @@ import {
   Zap,
   Shield,
 } from "lucide-react";
-import { checkCompleteness as checkCompletenessApi, uploadCsvWithOptions } from "../api";
+import {
+  checkCompleteness as checkCompletenessApi,
+  getImportLogs,
+  type ImportLogEntry,
+  uploadCsvWithOptions,
+} from "../api";
 
 // ── Types matching spec: 4 CSV types ──
 type CsvKind = "cost_centers" | "items" | "plan" | "fact";
@@ -39,6 +44,7 @@ interface FileUpload {
   inserted?: number;
   updated?: number;
   autoCreated?: number;
+  importedAt?: string;
   errors?: ImportError[];
 }
 
@@ -79,6 +85,29 @@ const csvKindConfig: Record<CsvKind, { label: string; description: string; colum
 
 const uploadOrder: CsvKind[] = ["cost_centers", "items", "plan", "fact"];
 
+function formatImportDate(value: string) {
+  const normalized = value.replace(" ", "T").replace(/\+00$/, "Z");
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("ru-RU");
+}
+
+function toHistoryItem(log: ImportLogEntry): FileUpload {
+  const kind = log.kind as CsvKind;
+  return {
+    id: `${log.imported_at}-${log.kind}-${log.filename}`,
+    name: log.filename,
+    size: formatImportDate(log.imported_at),
+    kind,
+    status: log.status === "SUCCESS" ? "success" : "error",
+    progress: 100,
+    inserted: log.inserted,
+    updated: log.updated,
+    importedAt: log.imported_at,
+    errors: log.errors > 0 ? [{ row: 0, message: `Ошибок в файле: ${log.errors}` }] : undefined,
+  };
+}
+
 export function Import() {
   const [files, setFiles] = useState<FileUpload[]>([]);
   const [dragOverKind, setDragOverKind] = useState<CsvKind | null>(null);
@@ -90,6 +119,21 @@ export function Import() {
     periodMismatch: string[];
   } | null>(null);
 
+  const loadImportHistory = useCallback(async () => {
+    try {
+      const logs = await getImportLogs(30);
+      setFiles(logs.map(toHistoryItem));
+    } catch (error) {
+      toast.error("Не удалось загрузить историю импорта", {
+        description: error instanceof Error ? error.message : "Ошибка API",
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    loadImportHistory();
+  }, [loadImportHistory]);
+
   const handleUpload = useCallback(async (file: File, kind: CsvKind) => {
     const id = Date.now().toString() + Math.random().toString(36).substr(2, 5);
     const newFile: FileUpload = {
@@ -99,6 +143,7 @@ export function Import() {
       kind,
       status: "uploading",
       progress: 0,
+      importedAt: new Date().toISOString(),
     };
     setFiles((prev) => [newFile, ...prev]);
     setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, status: "validating", progress: 100 } : f)));
@@ -128,6 +173,7 @@ export function Import() {
           description: `inserted: ${result.inserted}, updated: ${result.updated}, auto: ${result.auto_created}`,
         });
       }
+      window.dispatchEvent(new CustomEvent("budgetiq:data-imported", { detail: { kind } }));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Ошибка загрузки";
       setFiles((prev) =>

@@ -19,6 +19,8 @@ services:
     environment:
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/vv_db?sslmode=disable
       JWT_SECRET: change-me-in-production
+      ONEC_TOKEN: ${ONEC_TOKEN:-dev-1c-token-change-me}
+      ONEC_USER_EMAIL: ${ONEC_USER_EMAIL:-onec@company.ru}
       PORT: 8080
     depends_on:
       postgres:

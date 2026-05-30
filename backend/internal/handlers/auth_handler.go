@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
+	"log"
 	"net/http"
 	"strings"
 
@@ -9,6 +11,7 @@ import (
 	"backend/internal/repository"
 	"backend/pkg/auth"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -72,24 +75,42 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	err = h.userRepo.CreateUser(r.Context(), user)
 	if err != nil {
-		http.Error(w, "failed to create user", http.StatusInternalServerError)
+		log.Printf("register create user failed for %s: %v", req.Email, err)
+		writeRegisterError(w, err)
 		return
 	}
 
 	created, roleName, err := h.userRepo.GetUserByEmail(r.Context(), user.Email)
 	if err != nil || created == nil {
+		log.Printf("register load user failed for %s: created=%t err=%v", req.Email, created != nil, err)
 		http.Error(w, "failed to load user", http.StatusInternalServerError)
 		return
 	}
 	token, err := auth.GenerateToken(created.ID, roleName, created.CCID)
 	if err != nil {
+		log.Printf("register generate token failed for %s: %v", req.Email, err)
 		http.Error(w, "failed to generate token", http.StatusInternalServerError)
 		return
 	}
 
-	w.WriteHeader(http.StatusCreated)
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(models.TokenResponse{Token: token, User: created, Role: roleName})
+}
+
+func writeRegisterError(w http.ResponseWriter, err error) {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "23505":
+			http.Error(w, "email already exists", http.StatusConflict)
+			return
+		case "23503":
+			http.Error(w, "invalid cost center", http.StatusBadRequest)
+			return
+		}
+	}
+	http.Error(w, "failed to create user", http.StatusInternalServerError)
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -102,6 +123,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 	user, roleName, err := h.userRepo.GetUserByEmail(r.Context(), req.Email)
 	if err != nil {
+		log.Printf("login load user failed for %s: %v", req.Email, err)
 		http.Error(w, "internal db error", http.StatusInternalServerError)
 		return
 	}
@@ -114,9 +136,11 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid email or password", http.StatusUnauthorized)
 		return
 	}
+	_ = h.userRepo.LogAudit(r.Context(), user.ID, "auth.login", "users", user.ID.String(), json.RawMessage(`{"source":"web"}`))
 
 	token, err := auth.GenerateToken(user.ID, roleName, user.CCID)
 	if err != nil {
+		log.Printf("login generate token failed for %s: %v", req.Email, err)
 		http.Error(w, "failed to generate token", http.StatusInternalServerError)
 		return
 	}
@@ -133,6 +157,7 @@ func (h *AuthHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 	}
 	user, roleName, err := h.userRepo.GetUserByID(r.Context(), claims.UserID)
 	if err != nil {
+		log.Printf("get me load user failed for %s: %v", claims.UserID, err)
 		http.Error(w, "internal db error", http.StatusInternalServerError)
 		return
 	}

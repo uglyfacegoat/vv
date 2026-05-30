@@ -83,7 +83,11 @@ export function AuthModal({
     setFormError(null);
     const email = formData.email.trim().toLowerCase();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
+    if (!email) {
+      setFormError("Введите логин или email.");
+      return;
+    }
+    if (mode === "register" && !emailRegex.test(email)) {
       setFormError("Укажите корректный email.");
       return;
     }
@@ -98,10 +102,6 @@ export function AuthModal({
       }
       if (formData.password !== formData.confirmPassword) {
         setFormError("Пароли не совпадают.");
-        return;
-      }
-      if (email === "used@company.ru") {
-        setFormError("Email уже используется.");
         return;
       }
     }
@@ -328,7 +328,7 @@ export function AuthModal({
                 <div className="flex items-center gap-4 mb-4">
                   <div className={`flex-1 h-px ${dark ? "bg-gray-700" : "bg-gray-200"}`} />
                   <span className={`text-[0.78rem] ${dark ? "text-gray-500" : "text-gray-400"}`} style={{ fontWeight: 500 }}>
-                    или по email
+                    {mode === "login" ? "или по логину" : "или по email"}
                   </span>
                   <div className={`flex-1 h-px ${dark ? "bg-gray-700" : "bg-gray-200"}`} />
                 </div>
@@ -339,7 +339,7 @@ export function AuthModal({
                       className={`block text-[0.82rem] mb-1.5 ${dark ? "text-gray-300" : "text-gray-600"}`}
                       style={{ fontWeight: 600 }}
                     >
-                      Email
+                      {mode === "login" ? "Логин / email" : "Email"}
                     </label>
                     <div className="relative">
                       <Mail
@@ -348,8 +348,8 @@ export function AuthModal({
                         }`}
                       />
                       <input
-                        type="email"
-                        placeholder="name@company.ru"
+                        type="text"
+                        placeholder={mode === "login" ? "123 или name@company.ru" : "name@company.ru"}
                         value={formData.email}
                         onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                         className={fieldClass}

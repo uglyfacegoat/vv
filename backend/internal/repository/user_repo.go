@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type UserRepository struct {
@@ -130,6 +131,11 @@ func (r *UserRepository) CreateUser(ctx context.Context, u *models.User) error {
 		VALUES ($1, $2, $3, $4, $5, $6, (SELECT id FROM enterprise))
 		RETURNING id, created_at, updated_at`
 	err := r.db.QueryRow(ctx, q, u.Email, u.PasswordHash, u.RoleID, u.CCID, profile, settings).Scan(&u.ID, &u.CreatedAt, &u.UpdatedAt)
+	if err == nil {
+		_ = r.EnsureEnterpriseStateDefaults(ctx, u.ID)
+		metadata, _ := json.Marshal(map[string]any{"email": u.Email, "role_id": u.RoleID, "cc_id": u.CCID})
+		_ = r.LogAudit(ctx, u.ID, "auth.register", "users", u.ID.String(), metadata)
+	}
 	return err
 }
 
@@ -137,6 +143,46 @@ func (r *UserRepository) GetRoleIDByName(ctx context.Context, name string) (int,
 	var id int
 	err := r.db.QueryRow(ctx, `SELECT id FROM roles WHERE name = $1`, name).Scan(&id)
 	return id, err
+}
+
+func (r *UserRepository) EnsureServiceUser(ctx context.Context, email string) (uuid.UUID, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" || !strings.Contains(email, "@") || strings.HasSuffix(email, "@") {
+		return uuid.Nil, errors.New("service user email must contain a domain")
+	}
+
+	existing, _, err := r.GetUserByEmail(ctx, email)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if existing != nil {
+		return existing.ID, nil
+	}
+
+	roleID, err := r.GetRoleIDByName(ctx, "controller")
+	if err != nil {
+		return uuid.Nil, err
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(uuid.NewString()), bcrypt.DefaultCost)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	user := &models.User{
+		Email:        email,
+		PasswordHash: string(hash),
+		RoleID:       roleID,
+		Profile: models.UserProfile{
+			Name:       "1C Integration",
+			Position:   "Интеграция 1С",
+			Department: "Финансы",
+		},
+		Settings: defaultSettings(),
+	}
+	if err := r.CreateUser(ctx, user); err != nil {
+		return uuid.Nil, err
+	}
+	return user.ID, nil
 }
 
 // GetUserByEmail со встроенным ролевым запросом
@@ -191,6 +237,8 @@ func (r *UserRepository) UpdateProfile(ctx context.Context, id uuid.UUID, profil
 	if err != nil {
 		return nil, "", err
 	}
+	metadata, _ := json.Marshal(map[string]any{"name": profile.Name, "position": profile.Position, "department": profile.Department})
+	_ = r.LogAudit(ctx, id, "profile.update", "users", id.String(), metadata)
 	return r.GetUserByID(ctx, id)
 }
 
@@ -201,6 +249,14 @@ func (r *UserRepository) UpdateSettings(ctx context.Context, id uuid.UUID, setti
 	if err != nil {
 		return nil, "", err
 	}
+	metadata, _ := json.Marshal(map[string]any{
+		"threshold":           settings.Threshold,
+		"overspend_threshold": settings.OverspendThreshold,
+		"saving_threshold":    settings.SavingThreshold,
+		"currency":            settings.Currency,
+		"theme":               settings.Theme,
+	})
+	_ = r.LogAudit(ctx, id, "settings.update", "users", id.String(), metadata)
 	return r.GetUserByID(ctx, id)
 }
 
@@ -220,5 +276,48 @@ func (r *UserRepository) SetState(ctx context.Context, userID uuid.UUID, key str
 		ON CONFLICT (user_id, key)
 		DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP
 	`, userID, key, value)
+	if err == nil {
+		metadata, _ := json.Marshal(map[string]any{"key": key, "bytes": len(value)})
+		_ = r.LogAudit(ctx, userID, "state.user.update", "user_state", key, metadata)
+	}
+	return err
+}
+
+func (r *UserRepository) LogAudit(ctx context.Context, userID uuid.UUID, action, entity, entityID string, metadata json.RawMessage) error {
+	if len(metadata) == 0 {
+		metadata = json.RawMessage(`{}`)
+	}
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO audit_log (enterprise_id, user_id, action, entity, entity_id, metadata)
+		SELECT enterprise_id, id, $2, $3, $4, $5::jsonb
+		FROM users
+		WHERE id = $1
+	`, userID, action, entity, entityID, string(metadata))
+	return err
+}
+
+func (r *UserRepository) EnsureEnterpriseStateDefaults(ctx context.Context, userID uuid.UUID) error {
+	_, err := r.db.Exec(ctx, `
+		WITH enterprise AS (
+			SELECT enterprise_id FROM users WHERE id = $1 AND enterprise_id IS NOT NULL
+		), dashboard AS (
+			INSERT INTO enterprise_state (enterprise_id, key, value, updated_at)
+			SELECT enterprise_id, 'dashboard.defaults', jsonb_build_object(
+				'period_source', 'latest_loaded_period',
+				'scope', 'enterprise',
+				'widgets', jsonb_build_array('kpi', 'monthly_plan_fact', 'variance_heatmap', 'detail_table')
+			), CURRENT_TIMESTAMP
+			FROM enterprise
+			ON CONFLICT (enterprise_id, key) DO NOTHING
+		)
+		INSERT INTO enterprise_state (enterprise_id, key, value, updated_at)
+		SELECT enterprise_id, 'access.policy', jsonb_build_object(
+			'controller', jsonb_build_object('can_view_all_cost_centers', true, 'can_import', true, 'can_manage_users', false),
+			'manager', jsonb_build_object('can_view_assigned_cost_center', true, 'can_import', false, 'can_manage_users', false),
+			'analyst', jsonb_build_object('can_view_reports', true, 'can_import', false, 'can_manage_users', false)
+		), CURRENT_TIMESTAMP
+		FROM enterprise
+		ON CONFLICT (enterprise_id, key) DO NOTHING
+	`, userID)
 	return err
 }

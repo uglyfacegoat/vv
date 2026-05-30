@@ -58,8 +58,7 @@ func (h *BusinessHandler) CreateCostCenter(w http.ResponseWriter, r *http.Reques
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(cc)
+	writeJSON(w, http.StatusCreated, cc)
 }
 
 func (h *BusinessHandler) UpdateCostCenter(w http.ResponseWriter, r *http.Request) {
@@ -132,8 +131,7 @@ func (h *BusinessHandler) CreateItem(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(item)
+	writeJSON(w, http.StatusCreated, item)
 }
 
 func (h *BusinessHandler) UpdateItem(w http.ResponseWriter, r *http.Request) {
@@ -194,8 +192,7 @@ func (h *BusinessHandler) SavePlan(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(p)
+	writeJSON(w, http.StatusOK, p)
 }
 
 func (h *BusinessHandler) SaveFact(w http.ResponseWriter, r *http.Request) {
@@ -214,8 +211,7 @@ func (h *BusinessHandler) SaveFact(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(f)
+	writeJSON(w, http.StatusOK, f)
 }
 
 func (h *BusinessHandler) GetReport(w http.ResponseWriter, r *http.Request) {
