@@ -2,6 +2,7 @@ import { motion, useInView } from "motion/react";
 import { useRef } from "react";
 import { FileSpreadsheet, AlertTriangle, Eye, Shuffle } from "lucide-react";
 import { useTheme } from "./ThemeProvider";
+import { useLandingI18n } from "./landingI18n";
 
 const problems = [
   {
@@ -43,6 +44,12 @@ export function ProblemSection({
   const observedInView = useInView(ref, { once: true, margin: "-100px" });
   const isInView = forceInView || observedInView;
   const { dark } = useTheme();
+  const { copy } = useLandingI18n();
+  const translatedProblems = problems.map((problem, index) => ({
+    ...problem,
+    title: copy.problem.items[index][0],
+    desc: copy.problem.items[index][1],
+  }));
 
   return (
     <section
@@ -59,18 +66,17 @@ export function ProblemSection({
       />
       <div className="relative z-10 max-w-6xl mx-auto px-6" ref={ref}>
         <motion.div initial={{ opacity: 0, y: 30 }} animate={isInView ? { opacity: 1, y: 0 } : {}} transition={{ duration: 0.6 }} className="text-center mb-16">
-          <span className={`inline-block px-4 py-1.5 rounded-full text-[0.85rem] mb-6 ${dark ? "bg-red-500/15 text-red-400" : "bg-red-100/80 text-red-600"}`} style={{ fontWeight: 500 }}>Что показывает проект</span>
+          <span className={`inline-block px-4 py-1.5 rounded-full text-[0.85rem] mb-6 ${dark ? "bg-red-500/15 text-red-400" : "bg-red-100/80 text-red-600"}`} style={{ fontWeight: 500 }}>{copy.problem.badge}</span>
           <h2 className={`text-[2.2rem] md:text-[3rem] tracking-tight leading-[1.1] mb-5 ${dark ? "text-white" : ""}`} style={{ fontWeight: 800 }}>
-            Где бюджетный процесс<br /><span className="text-red-500">ломается чаще всего</span>
+            {copy.problem.title}<br /><span className="text-red-500">{copy.problem.accent}</span>
           </h2>
           <p className={`text-[1.1rem] max-w-xl mx-auto ${dark ? "text-gray-400" : "text-gray-500"}`}>
-            В учебном сценарии разобраны типичные проблемы: разрозненные таблицы,
-            ручные сверки и отсутствие единой картины по плану и факту.
+            {copy.problem.subtitle}
           </p>
         </motion.div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
-          {problems.map((p, i) => (
+          {translatedProblems.map((p, i) => (
             <motion.div key={p.title} initial={{ opacity: 0, y: 40 }} animate={isInView ? { opacity: 1, y: 0 } : {}} transition={{ duration: 0.5, delay: 0.2 + i * 0.15 }}
               className={`group relative p-6 rounded-2xl backdrop-blur-sm border shadow-sm transition-all duration-500 ${
                 dark

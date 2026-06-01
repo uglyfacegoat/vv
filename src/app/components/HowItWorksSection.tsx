@@ -2,6 +2,7 @@ import { motion, useInView } from "motion/react";
 import { useRef } from "react";
 import { ArrowRight, Database, FileBarChart, LayoutDashboard, UserPlus } from "lucide-react";
 import { useTheme } from "./ThemeProvider";
+import { useLandingI18n } from "./landingI18n";
 
 const ghostPanels = [
   { left: 0, top: 0, width: 358, height: 294 },
@@ -91,6 +92,13 @@ export function HowItWorksSection({
   const observedInView = useInView(ref, { once: true, margin: "-100px" });
   const isInView = forceInView || observedInView;
   const { dark } = useTheme();
+  const { copy } = useLandingI18n();
+  const translatedSteps = steps.map((step, index) => ({
+    ...step,
+    title: copy.how.steps[index][0],
+    desc: copy.how.steps[index][1],
+    detail: copy.how.steps[index][2],
+  }));
 
   return (
     <section
@@ -118,7 +126,7 @@ export function HowItWorksSection({
             }`}
             style={{ fontWeight: 500, lineHeight: "20.4px" }}
           >
-            Как это работает
+            {copy.how.badge}
           </span>
           <h2
             className={`mt-6 text-[2.2rem] leading-[1.08] tracking-[-0.025em] md:text-[48px] ${
@@ -126,9 +134,9 @@ export function HowItWorksSection({
             }`}
             style={{ fontWeight: 800 }}
           >
-            От загрузки CSV до итогового отчёта{" "}
+            {copy.how.title}{" "}
             <span className="bg-gradient-to-r from-[#8e51ff] via-[#2b7fff] to-[#00bba7] bg-clip-text text-transparent">
-              в одном сценарии
+              {copy.how.accent}
             </span>
           </h2>
           <p
@@ -136,8 +144,7 @@ export function HowItWorksSection({
               dark ? "text-[#99a1af]" : "text-slate-500"
             }`}
           >
-            Секция повторяет реальную последовательность работы в проекте:
-            вход, импорт, проверка дашборда и итоговый отчёт.
+            {copy.how.subtitle}
           </p>
         </motion.div>
 
@@ -167,7 +174,7 @@ export function HowItWorksSection({
                 />
               ))}
 
-              {steps.map((step, index) => (
+              {translatedSteps.map((step, index) => (
                 <motion.div
                   key={step.num}
                   initial={{ opacity: 0, y: 28 }}
@@ -263,7 +270,7 @@ export function HowItWorksSection({
 
           <div className="mx-auto hidden max-w-[980px] lg:block xl:hidden">
             <div className="grid grid-cols-2 gap-5">
-              {steps.map((step, index) => (
+              {translatedSteps.map((step, index) => (
                 <motion.div
                   key={step.num}
                   initial={{ opacity: 0, y: 22 }}
@@ -306,7 +313,7 @@ export function HowItWorksSection({
           </div>
 
           <div className="space-y-12 lg:hidden">
-            {steps.map((step, i) => (
+            {translatedSteps.map((step, i) => (
               <motion.div
                 key={step.num}
                 initial={{ opacity: 0, x: i % 2 === 0 ? -50 : 50 }}

@@ -223,8 +223,8 @@ export function Report({ threshold, onThresholdChange, userRole, allowedCostCent
   const thresholdDecimal = threshold / 100;
 
   useEffect(() => {
+    setSearchQuery(externalSearchQuery);
     if (externalSearchQuery) {
-      setSearchQuery(externalSearchQuery);
       setShowFilters(true);
     }
   }, [externalSearchQuery]);
@@ -271,8 +271,8 @@ export function Report({ threshold, onThresholdChange, userRole, allowedCostCent
     if (selectedStatus !== "ALL") data = data.filter((r) => r.status === selectedStatus);
 
     // Search
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
       data = data.filter(
         (r) =>
           r.cc_name.toLowerCase().includes(q) ||

@@ -8,6 +8,7 @@ import {
   ArrowDownRight,
 } from "lucide-react";
 import { useTheme } from "./ThemeProvider";
+import { useLandingI18n } from "./landingI18n";
 
 export function DashboardSection({
   forceInView = false,
@@ -18,6 +19,7 @@ export function DashboardSection({
   const observedInView = useInView(ref, { once: true, margin: "-100px" });
   const isInView = forceInView || observedInView;
   const { dark } = useTheme();
+  const { copy } = useLandingI18n();
 
   return (
     <section
@@ -45,20 +47,19 @@ export function DashboardSection({
           className="text-center mb-16"
         >
           <span className={`inline-block px-4 py-1.5 rounded-full text-[0.85rem] mb-6 ${dark ? "bg-blue-500/15 text-blue-400" : "bg-blue-100/80 text-blue-600"}`} style={{ fontWeight: 500 }}>
-            Аналитика
+            {copy.dashboard.badge}
           </span>
           <h2
             className={`text-[2.2rem] md:text-[3rem] tracking-tight leading-[1.1] mb-5 ${dark ? "text-white" : ""}`}
             style={{ fontWeight: 800 }}
           >
-            Дашборды, которые{" "}
+            {copy.dashboard.title}{" "}
             <span className="bg-gradient-to-r from-blue-600 to-cyan-500 bg-clip-text text-transparent">
-              говорят сами
+              {copy.dashboard.accent}
             </span>
           </h2>
           <p className={`text-[1.1rem] max-w-xl mx-auto ${dark ? "text-gray-400" : "text-gray-500"}`}>
-            В дашборде собраны сводные метрики, план-факт по месяцам и
-            структура расходов по учебным данным проекта.
+            {copy.dashboard.subtitle}
           </p>
         </motion.div>
 
@@ -74,28 +75,28 @@ export function DashboardSection({
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
               {[
                 {
-                  label: "Общий бюджет",
+                  label: copy.dashboard.metrics[0],
                   value: "₽248.5M",
                   change: "+15.2%",
                   up: true,
                   icon: TrendingUp,
                 },
                 {
-                  label: "Исполнение",
+                  label: copy.dashboard.metrics[1],
                   value: "76.3%",
                   change: "+3.1%",
                   up: true,
                   icon: Activity,
                 },
                 {
-                  label: "Отклонения",
+                  label: copy.dashboard.metrics[2],
                   value: "₽12.8M",
                   change: "-8.4%",
                   up: false,
                   icon: PieChart,
                 },
                 {
-                  label: "Экономия",
+                  label: copy.dashboard.metrics[3],
                   value: "₽18.2M",
                   change: "+22.7%",
                   up: true,
@@ -143,23 +144,23 @@ export function DashboardSection({
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <div className={`text-[0.95rem] ${dark ? "text-white" : ""}`} style={{ fontWeight: 600 }}>
-                      План-факт по месяцам
+                      {copy.dashboard.chartTitle}
                     </div>
                     <div className={`text-[0.8rem] ${dark ? "text-gray-500" : "text-gray-400"}`}>
-                      Янв — Дек 2025
+                      {copy.dashboard.chartRange}
                     </div>
                   </div>
                   <div className="flex gap-3">
                     <div className="flex items-center gap-1.5">
                       <div className="w-2.5 h-2.5 rounded-full bg-violet-500" />
                       <span className="text-[0.75rem] text-gray-400">
-                        План
+                        {copy.dashboard.plan}
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5">
                       <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
                       <span className="text-[0.75rem] text-gray-400">
-                        Факт
+                        {copy.dashboard.fact}
                       </span>
                     </div>
                   </div>
@@ -184,18 +185,18 @@ export function DashboardSection({
                   ))}
                   {/* Bar groups */}
                   {[
-                    { m: "Янв", p: 120, f: 110 },
-                    { m: "Фев", p: 100, f: 95 },
-                    { m: "Мар", p: 130, f: 125 },
-                    { m: "Апр", p: 115, f: 120 },
-                    { m: "Май", p: 140, f: 130 },
-                    { m: "Июн", p: 125, f: 118 },
-                    { m: "Июл", p: 135, f: 140 },
-                    { m: "Авг", p: 145, f: 138 },
-                    { m: "Сен", p: 150, f: 142 },
-                    { m: "Окт", p: 155, f: 148 },
-                    { m: "Ноя", p: 160, f: 150 },
-                    { m: "Дек", p: 165, f: 158 },
+                    { m: copy.dashboard.months[0], p: 120, f: 110 },
+                    { m: copy.dashboard.months[1], p: 100, f: 95 },
+                    { m: copy.dashboard.months[2], p: 130, f: 125 },
+                    { m: copy.dashboard.months[3], p: 115, f: 120 },
+                    { m: copy.dashboard.months[4], p: 140, f: 130 },
+                    { m: copy.dashboard.months[5], p: 125, f: 118 },
+                    { m: copy.dashboard.months[6], p: 135, f: 140 },
+                    { m: copy.dashboard.months[7], p: 145, f: 138 },
+                    { m: copy.dashboard.months[8], p: 150, f: 142 },
+                    { m: copy.dashboard.months[9], p: 155, f: 148 },
+                    { m: copy.dashboard.months[10], p: 160, f: 150 },
+                    { m: copy.dashboard.months[11], p: 165, f: 158 },
                   ].map((d, i) => {
                     const x = 20 + i * 40;
                     return (
@@ -275,7 +276,7 @@ export function DashboardSection({
                 {/* Donut chart */}
                 <div className={`rounded-2xl border p-5 ${dark ? "bg-gray-900 border-gray-800" : "bg-white border-gray-100"}`}>
                   <div className={`text-[0.9rem] mb-3 ${dark ? "text-white" : ""}`} style={{ fontWeight: 600 }}>
-                    Структура расходов
+                    {copy.dashboard.expenseStructure}
                   </div>
                   <svg
                     viewBox="0 0 100 100"
@@ -324,10 +325,10 @@ export function DashboardSection({
                   </svg>
                   <div className="space-y-2">
                     {[
-                      { label: "ФОТ", pct: 42, color: "bg-violet-500" },
-                      { label: "ИТ", pct: 24, color: "bg-blue-500" },
-                      { label: "Маркетинг", pct: 18, color: "bg-cyan-500" },
-                      { label: "Прочее", pct: 16, color: "bg-gray-300" },
+                      { label: copy.dashboard.categories[0], pct: 42, color: "bg-violet-500" },
+                      { label: copy.dashboard.categories[1], pct: 24, color: "bg-blue-500" },
+                      { label: copy.dashboard.categories[2], pct: 18, color: "bg-cyan-500" },
+                      { label: copy.dashboard.categories[3], pct: 16, color: "bg-gray-300" },
                     ].map((item) => (
                       <div key={item.label} className="flex items-center gap-2">
                         <div className={`w-2 h-2 rounded-full ${item.color}`} />
@@ -345,7 +346,7 @@ export function DashboardSection({
                 {/* Quick KPI */}
                 <div className="rounded-2xl bg-gradient-to-br from-violet-600 to-blue-600 p-5 text-white">
                   <div className="text-[0.85rem] text-violet-200 mb-1">
-                    KPI исполнения
+                    {copy.dashboard.executionKpi}
                   </div>
                   <div className="text-[2rem]" style={{ fontWeight: 800 }}>
                     92.1%
@@ -353,7 +354,7 @@ export function DashboardSection({
                   <div className="flex items-center gap-1 mt-1">
                     <ArrowUpRight className="w-4 h-4 text-emerald-300" />
                     <span className="text-[0.85rem] text-emerald-300" style={{ fontWeight: 500 }}>
-                      +4.2% к прошлому кварталу
+                      {copy.dashboard.quarterChange}
                     </span>
                   </div>
                 </div>

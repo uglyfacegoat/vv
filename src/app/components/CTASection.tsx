@@ -7,6 +7,7 @@ import heroShape from "../../assets/cta-figma-2/hero-shape.png";
 import patternArt from "../../assets/cta-figma-2/pattern.svg";
 import { useTheme } from "./ThemeProvider";
 import { BudgetIQMark } from "./brand/BudgetIQMark";
+import { useLandingI18n } from "./landingI18n";
 
 interface CTASectionProps {
   onOpenAuth?: (mode: "login" | "register") => void;
@@ -16,6 +17,7 @@ export function CTASection({ onOpenAuth }: CTASectionProps) {
   const ref = useRef<HTMLDivElement>(null);
   const isInView = useInView(ref, { once: true, margin: "-100px" });
   const { dark } = useTheme();
+  const { copy } = useLandingI18n();
   const year = new Date().getFullYear();
   const sectionHeightClass = "min-h-[calc(100vh+100px)]";
 
@@ -78,7 +80,7 @@ export function CTASection({ onOpenAuth }: CTASectionProps) {
             <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle,rgba(123,63,202,0.16)_0%,rgba(45,62,156,0.1)_28%,transparent_62%)] blur-3xl" />
             <motion.img
               src={heroShape}
-              alt="Glossy chromed torus"
+              alt={copy.cta.imageAlt}
               animate={isInView ? { y: [0, -8, 0], rotate: [-0.9, 1, -0.9], scale: [1, 1.01, 1] } : undefined}
               transition={{ duration: 10, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" }}
               className="absolute left-1/2 top-1/2 w-[min(72vw,610px)] max-w-none -translate-x-[53%] -translate-y-[49%] object-contain drop-shadow-[0_30px_96px_rgba(5,8,16,0.72)] sm:w-[min(56vw,630px)] lg:left-[37%] lg:top-[50%] lg:w-[min(39vw,580px)]"
@@ -101,7 +103,7 @@ export function CTASection({ onOpenAuth }: CTASectionProps) {
                 >
                   <img src={badgeSparkle} alt="" className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                   <span className={`text-[11px] sm:text-[13.6px] ${badgeTextClass}`} style={{ fontWeight: 500 }}>
-                    Начните за 5 минут
+                    {copy.cta.badge}
                   </span>
                 </motion.div>
 
@@ -109,17 +111,17 @@ export function CTASection({ onOpenAuth }: CTASectionProps) {
                   className={`mt-11 text-[clamp(1.95rem,2.75vw,2.7rem)] leading-[0.97] tracking-[-0.04em] sm:mt-12 ${headingTextClass}`}
                   style={{ fontWeight: 800 }}
                 >
-                  Начните управлять
+                  {copy.cta.heading[0]}
                   <br />
-                  бюджетом как
+                  {copy.cta.heading[1]}
                   <br />
                   <span className="bg-gradient-to-b from-[#a92fb0] via-[#b25cc0] to-[#c99cd4] bg-clip-text text-transparent">
-                    продуктом
+                    {copy.cta.heading[2]}
                   </span>
                   <br />
-                  без усилий
+                  {copy.cta.heading[3]}
                   <br />
-                  без хаоса
+                  {copy.cta.heading[4]}
                 </h2>
               </div>
 
@@ -130,7 +132,7 @@ export function CTASection({ onOpenAuth }: CTASectionProps) {
                 >
                   <img src={buttonChart} alt="" className="h-4 w-4 shrink-0" />
                   <span className="whitespace-nowrap text-[13px] sm:text-[14px]" style={{ fontWeight: 700, lineHeight: 1.2 }}>
-                    Попробовать BudgetIQ
+                    {copy.cta.button}
                   </span>
                   <img
                     src={buttonArrow}
@@ -156,7 +158,7 @@ export function CTASection({ onOpenAuth }: CTASectionProps) {
             </span>
           </div>
           <div className={`flex-1 text-center text-[13px] ${descriptionTextClass}`}>
-            Учебный проект ВУЗа по план-факт анализу бюджета подразделений.
+            {copy.cta.footer}
           </div>
           <div className={`text-right text-[12px] ${copyrightTextClass}`}>
             © {year} BudgetIQ

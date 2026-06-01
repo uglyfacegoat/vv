@@ -4,6 +4,7 @@ import gridBottom from "../../assets/hero/grid-bottom.svg";
 import gridTop from "../../assets/hero/grid-top.svg";
 import heroKnot from "../../assets/hero-knot.png";
 import { useTheme } from "./ThemeProvider";
+import { useLandingI18n } from "./landingI18n";
 
 interface HeroIntroSectionProps {
   onOpenAuth?: (mode: "login" | "register") => void;
@@ -11,6 +12,9 @@ interface HeroIntroSectionProps {
 
 export function HeroIntroSection({ onOpenAuth }: HeroIntroSectionProps) {
   const { dark } = useTheme();
+  const { copy, language } = useLandingI18n();
+  const headline = copy.heroIntro.headline;
+  const useDecorativeNumbersFont = language === "en" || language === "es";
 
   return (
     <section
@@ -61,36 +65,38 @@ export function HeroIntroSection({ onOpenAuth }: HeroIntroSectionProps) {
               style={{ fontFamily: "Montserrat, sans-serif", fontWeight: 800, lineHeight: 0.92 }}
             >
               <div className="text-[clamp(1.95rem,3.2vw,2.95rem)]">
-                <span className="block">Understand</span>
-                <span className="block">Your</span>
+                <span className="block">{headline[0]}</span>
+                <span className="block">{headline[1]}</span>
               </div>
               <div
-                className={`mt-[0.85rem] pl-0.5 text-[clamp(2.02rem,2.56vw,2.42rem)] normal-case ${
-                  dark ? "text-white/96" : "text-slate-900"
-                }`}
+                className={`${
+                  useDecorativeNumbersFont
+                    ? "mt-[0.85rem] pl-0.5 text-[clamp(2.02rem,2.56vw,2.42rem)]"
+                    : "text-[clamp(1.95rem,3.2vw,2.95rem)]"
+                } ${dark ? "text-white/96" : "text-slate-900"}`}
                 style={{
-                  fontFamily: "Mynerve, cursive",
-                  fontWeight: 400,
-                  lineHeight: 0.96,
-                  letterSpacing: "-0.01em",
+                  fontFamily: useDecorativeNumbersFont ? "Mynerve, cursive" : "Montserrat, sans-serif",
+                  fontWeight: useDecorativeNumbersFont ? 400 : 800,
+                  lineHeight: useDecorativeNumbersFont ? 0.96 : 0.92,
+                  letterSpacing: useDecorativeNumbersFont ? 0 : "-0.048em",
                   textTransform: "uppercase",
                 }}
               >
-                NUMBERS
+                {headline[2]}
               </div>
               <div className="mt-2 text-[clamp(1.95rem,3.2vw,2.95rem)]">
-                <span className="block">Control Every</span>
-                <span className="block">Movement</span>
+                <span className="block">{headline[3]}</span>
+                <span className="block">{headline[4]}</span>
               </div>
               <div className="mt-2 text-[clamp(1.95rem,3.2vw,2.95rem)]">
                 <span className="block whitespace-nowrap">
-                  See The{" "}
+                  {headline[5]}{" "}
                   <span className="bg-gradient-to-r from-[#c963c9] via-[#b38fd7] to-[#9788dc] bg-clip-text text-transparent">
-                    Business
+                    {headline[6]}
                   </span>{" "}
-                  As It
+                  {headline[7]}
                 </span>
-                <span className="block">Really Is</span>
+                {headline[8] && <span className="block">{headline[8]}</span>}
               </div>
             </div>
 
@@ -105,7 +111,7 @@ export function HeroIntroSection({ onOpenAuth }: HeroIntroSectionProps) {
                 className="group inline-flex h-[56px] items-center justify-center gap-2 rounded-2xl bg-[#2563eb] px-6 text-[0.9rem] text-white shadow-[0_14px_40px_rgba(37,99,235,0.24)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#1d4ed8] hover:shadow-[0_18px_46px_rgba(37,99,235,0.28)]"
                 style={{ fontFamily: "Inter, sans-serif", fontWeight: 600 }}
               >
-                <span className="whitespace-nowrap">Открыть проект</span>
+                <span className="whitespace-nowrap">{copy.heroIntro.openProject}</span>
                 <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-0.5" />
               </button>
 
@@ -121,7 +127,7 @@ export function HeroIntroSection({ onOpenAuth }: HeroIntroSectionProps) {
                 style={{ fontFamily: "Inter, sans-serif", fontWeight: 500 }}
               >
                 <Play className="h-4 w-4" />
-                <span className="whitespace-nowrap">Как устроен проект</span>
+                <span className="whitespace-nowrap">{copy.heroIntro.howItWorks}</span>
               </button>
             </motion.div>
           </motion.div>
@@ -134,7 +140,7 @@ export function HeroIntroSection({ onOpenAuth }: HeroIntroSectionProps) {
           >
             <motion.img
               src={heroKnot}
-              alt="Glossy abstract loop"
+              alt={copy.heroIntro.imageAlt}
               animate={{
                 y: [0, -14, 0],
                 rotate: [-1.2, 1.2, -1.2],

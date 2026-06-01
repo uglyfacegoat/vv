@@ -2,6 +2,7 @@ import { motion, useInView } from "motion/react";
 import { useRef } from "react";
 import { Zap, BarChart3, Upload, Target, Shield, Layers } from "lucide-react";
 import { useTheme } from "./ThemeProvider";
+import { useLandingI18n } from "./landingI18n";
 
 const features = [
   { icon: Zap, title: "План-факт расчёты", desc: "Проект считает delta, delta_% и сводные KPI по учебным данным." },
@@ -21,6 +22,12 @@ export function SolutionSection({
   const observedInView = useInView(ref, { once: true, margin: "-100px" });
   const isInView = forceInView || observedInView;
   const { dark } = useTheme();
+  const { copy } = useLandingI18n();
+  const translatedFeatures = features.map((feature, index) => ({
+    ...feature,
+    title: copy.solution.features[index][0],
+    desc: copy.solution.features[index][1],
+  }));
 
   return (
     <section
@@ -30,18 +37,17 @@ export function SolutionSection({
     >
       <div className="relative z-10 max-w-6xl mx-auto px-6" ref={ref}>
         <motion.div initial={{ opacity: 0, y: 30 }} animate={isInView ? { opacity: 1, y: 0 } : {}} transition={{ duration: 0.6 }} className="text-center mb-16">
-          <span className={`inline-block px-4 py-1.5 rounded-full text-[0.85rem] mb-6 ${dark ? "bg-violet-500/15 text-violet-400" : "bg-violet-100/80 text-violet-600"}`} style={{ fontWeight: 500 }}>Решение</span>
+          <span className={`inline-block px-4 py-1.5 rounded-full text-[0.85rem] mb-6 ${dark ? "bg-violet-500/15 text-violet-400" : "bg-violet-100/80 text-violet-600"}`} style={{ fontWeight: 500 }}>{copy.solution.badge}</span>
           <h2 className={`text-[2.2rem] md:text-[3rem] tracking-tight leading-[1.1] mb-5 ${dark ? "text-white" : ""}`} style={{ fontWeight: 800 }}>
-            Что уже есть{" "}<span className="bg-gradient-to-r from-violet-600 to-blue-600 bg-clip-text text-transparent">в проекте</span>
+            {copy.solution.title}{" "}<span className="bg-gradient-to-r from-violet-600 to-blue-600 bg-clip-text text-transparent">{copy.solution.accent}</span>
           </h2>
           <p className={`text-[1.1rem] max-w-xl mx-auto ${dark ? "text-gray-400" : "text-gray-500"}`}>
-            Лендинг показывает реальные разделы учебного проекта: импорт данных,
-            расчёты отклонений, дашборды, отчёты и справочную документацию.
+            {copy.solution.subtitle}
           </p>
         </motion.div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {features.map((f, i) => (
+          {translatedFeatures.map((f, i) => (
             <motion.div key={f.title} initial={{ opacity: 0, y: 40 }} animate={isInView ? { opacity: 1, y: 0 } : {}} transition={{ duration: 0.5, delay: 0.15 + i * 0.1 }}
               className={`group relative p-6 rounded-2xl backdrop-blur-md border shadow-sm transition-all duration-500 hover:-translate-y-1 ${
                 dark

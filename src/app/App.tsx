@@ -265,10 +265,16 @@ function AppContent() {
   };
 
   const handleSearch = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && searchQuery.trim()) {
-      setReportSearchQuery(searchQuery.trim());
+    const trimmedQuery = searchQuery.trim();
+    if (e.key === "Escape") {
+      setSearchQuery("");
+      setReportSearchQuery("");
+      return;
+    }
+    if (e.key === "Enter" && trimmedQuery) {
+      setReportSearchQuery(trimmedQuery);
       navigate(pagePathMap.report);
-      toast.info(`Поиск: "${searchQuery.trim()}"`, { description: "Фильтр применён в отчёте План-Факт" });
+      toast.info(`Поиск: "${trimmedQuery}"`, { description: "Фильтр применён в отчёте План-Факт" });
     }
   };
 
@@ -486,7 +492,10 @@ function AppContent() {
                 />
                 {searchQuery && (
                   <button
-                    onClick={() => setSearchQuery("")}
+                    onClick={() => {
+                      setSearchQuery("");
+                      setReportSearchQuery("");
+                    }}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                   >
                     <span className="text-[11px] px-1.5 py-0.5 rounded bg-muted">Esc</span>
@@ -614,7 +623,6 @@ function AppContent() {
                   <Dashboard
                     userRole={authUser!.role}
                     allowedCostCenters={authUser!.allowedCostCenters}
-                    externalSearchQuery={reportSearchQuery}
                   />
                 )}
                 {page === "report" && (
@@ -623,6 +631,7 @@ function AppContent() {
                     onThresholdChange={setThreshold}
                     userRole={authUser!.role}
                     allowedCostCenters={authUser!.allowedCostCenters}
+                    externalSearchQuery={reportSearchQuery}
                   />
                 )}
                 {page === "import" && <Import />}

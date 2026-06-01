@@ -11,6 +11,7 @@ import { Navbar } from "./Navbar";
 import { ProblemSection } from "./ProblemSection";
 import { SolutionSection } from "./SolutionSection";
 import { ThemeProvider, useTheme } from "./ThemeProvider";
+import { LandingI18nContext, landingCopy, type LandingLanguage } from "./landingI18n";
 import type { UserSession } from "../auth";
 
 interface LandingPageProps {
@@ -29,6 +30,10 @@ function LandingContent({
   const { dark } = useTheme();
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [language, setLanguageState] = useState<LandingLanguage>(() => {
+    const saved = localStorage.getItem("budgetiq.landing.language");
+    return saved === "en" || saved === "zh" || saved === "es" || saved === "ru" ? saved : "ru";
+  });
 
   useEffect(() => {
     if (!initialAuthMode) return;
@@ -47,9 +52,16 @@ function LandingContent({
     onAuthRequestClose?.();
   };
 
+  const setLanguage = (nextLanguage: LandingLanguage) => {
+    setLanguageState(nextLanguage);
+    localStorage.setItem("budgetiq.landing.language", nextLanguage);
+  };
+
   return (
-    <div
-      className={`relative transition-colors duration-500 ${dark ? "bg-gray-950" : "bg-[#fafafe]"}`}
+    <LandingI18nContext.Provider value={{ language, setLanguage, copy: landingCopy[language] }}>
+      <div
+        className={`relative transition-colors duration-500 ${dark ? "bg-gray-950" : "bg-[#fafafe]"}`}
+        lang={language === "zh" ? "zh-CN" : language}
     >
       <GlobalFlowLines />
       <Navbar onOpenAuth={handleOpenAuth} />
@@ -77,7 +89,8 @@ function LandingContent({
       <div className="relative z-[12]">
         <CTASection onOpenAuth={handleOpenAuth} />
       </div>
-    </div>
+      </div>
+    </LandingI18nContext.Provider>
   );
 }
 

@@ -9,6 +9,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useTheme } from "./ThemeProvider";
+import { useLandingI18n } from "./landingI18n";
 
 const importSteps = [
   {
@@ -46,6 +47,13 @@ export function ImportSection({
   const observedInView = useInView(ref, { once: true, margin: "-100px" });
   const isInView = forceInView || observedInView;
   const { dark } = useTheme();
+  const { copy } = useLandingI18n();
+  const translatedSteps = importSteps.map((step, index) => ({
+    ...step,
+    title: copy.import.steps[index][0],
+    desc: copy.import.steps[index][1],
+    tags: copy.import.steps[index][2],
+  }));
 
   return (
     <section
@@ -61,26 +69,25 @@ export function ImportSection({
           className="text-center mb-16"
         >
           <span className={`inline-block px-4 py-1.5 rounded-full text-[0.85rem] mb-6 ${dark ? "bg-teal-500/15 text-teal-400" : "bg-teal-100/80 text-teal-600"}`} style={{ fontWeight: 500 }}>
-            Импорт и проверка
+            {copy.import.badge}
           </span>
           <h2
             className={`text-[2.2rem] md:text-[3rem] tracking-tight leading-[1.1] mb-5 ${dark ? "text-white" : ""}`}
             style={{ fontWeight: 800 }}
           >
-            Как проект работает{" "}
+            {copy.import.title}{" "}
             <span className="bg-gradient-to-r from-teal-500 to-cyan-500 bg-clip-text text-transparent">
-              с данными
+              {copy.import.accent}
             </span>
           </h2>
           <p className={`text-[1.1rem] max-w-xl mx-auto ${dark ? "text-gray-400" : "text-gray-500"}`}>
-            Здесь показан реальный контур импорта: загрузка CSV, валидация,
-            проверка полноты и отображение статусов в интерфейсе.
+            {copy.import.subtitle}
           </p>
         </motion.div>
 
         {/* Steps flow */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto mb-16">
-          {importSteps.map((step, i) => (
+          {translatedSteps.map((step, i) => (
             <motion.div
               key={step.title}
               initial={{ opacity: 0, x: i % 2 === 0 ? -40 : 40 }}
@@ -136,16 +143,16 @@ export function ImportSection({
             <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
               <div>
                 <div className={`text-[1rem] ${dark ? "text-white" : ""}`} style={{ fontWeight: 600 }}>
-                  Статус загрузки
+                  {copy.import.statusTitle}
                 </div>
                 <div className={`text-[0.85rem] ${dark ? "text-gray-500" : "text-gray-400"}`}>
-                  Пример состояния файлов после обработки
+                  {copy.import.statusSubtitle}
                 </div>
               </div>
               <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${dark ? "bg-emerald-500/10 border-emerald-500/30" : "bg-emerald-50 border-emerald-200/60"}`}>
                 <div className="w-2 h-2 rounded-full bg-emerald-500" />
                 <span className="text-[0.8rem] text-emerald-600" style={{ fontWeight: 500 }}>
-                  Демо-режим
+                  {copy.import.demoMode}
                 </span>
               </div>
             </div>
@@ -154,22 +161,25 @@ export function ImportSection({
               {[
                 {
                   source: "cost_centers.csv",
-                  status: "Проверено",
-                  records: "128",
+                  status: copy.import.rows[0][0],
+                  records: copy.import.rows[0][1],
+                  unit: copy.import.rows[0][2],
                   icon: Database,
                   ok: true,
                 },
                 {
                   source: "items.csv",
-                  status: "Проверено",
-                  records: "214",
+                  status: copy.import.rows[1][0],
+                  records: copy.import.rows[1][1],
+                  unit: copy.import.rows[1][2],
                   icon: Database,
                   ok: true,
                 },
                 {
                   source: "plan.csv",
-                  status: "Есть замечания",
-                  records: "824",
+                  status: copy.import.rows[2][0],
+                  records: copy.import.rows[2][1],
+                  unit: copy.import.rows[2][2],
                   icon: FileUp,
                   ok: false,
                 },
@@ -189,7 +199,7 @@ export function ImportSection({
                       {item.source}
                     </div>
                     <div className={`text-[0.8rem] ${dark ? "text-gray-500" : "text-gray-400"}`}>
-                      {item.records} строк
+                      {item.records} {item.unit}
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5">

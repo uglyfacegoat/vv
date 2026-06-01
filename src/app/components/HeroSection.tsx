@@ -1,8 +1,10 @@
 ﻿import { motion } from "motion/react";
 import { useTheme } from "./ThemeProvider";
+import { useLandingI18n } from "./landingI18n";
 
 export function HeroSection() {
   const { dark } = useTheme();
+  const { copy } = useLandingI18n();
 
   return (
     <section
@@ -31,11 +33,11 @@ export function HeroSection() {
           }`}
           style={{ fontWeight: 800 }}
         >
-          <span className="block">Контролируйте бюджет.</span>
+          <span className="block">{copy.hero.title[0]}</span>
           <span className="block bg-gradient-to-r from-violet-600 via-blue-600 to-teal-500 bg-clip-text text-transparent">
-            Управляйте отклонениями.
+            {copy.hero.title[1]}
           </span>
-          <span className="block">Видьте реальную картину.</span>
+          <span className="block">{copy.hero.title[2]}</span>
         </motion.h1>
 
         {/* Subtitle */}
@@ -47,9 +49,7 @@ export function HeroSection() {
             dark ? "text-gray-400" : "text-gray-500"
           }`}
         >
-          Учебный интерфейс по план-факт анализу бюджета подразделений.
-          На лендинге показаны импорт CSV, дашборд с KPI, отчёт и сценарии
-          проверки данных.
+          {copy.hero.subtitle}
         </motion.p>
 
 
@@ -129,10 +129,10 @@ export function HeroSection() {
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   {[
-                    { label: "Бюджет", value: "₽124.5M", pct: "+12.3%" },
-                    { label: "Факт", value: "₽98.2M", pct: "78.7%" },
-                    { label: "Отклонение", value: "₽26.3M", pct: "-21.3%" },
-                    { label: "KPI", value: "92.1%", pct: "+4.2%" },
+                    { label: copy.hero.cards[0], value: "₽124.5M", pct: "+12.3%" },
+                    { label: copy.hero.cards[1], value: "₽98.2M", pct: "78.7%" },
+                    { label: copy.hero.cards[2], value: "₽26.3M", pct: "-21.3%" },
+                    { label: copy.hero.cards[3], value: "92.1%", pct: "+4.2%" },
                   ].map((card, i) => (
                     <motion.div
                       key={card.label}
@@ -194,7 +194,7 @@ export function HeroSection() {
                             dark ? "text-gray-500" : "text-gray-400"
                           }`}
                         >
-                          План
+                          {copy.hero.plan}
                         </span>
                       </div>
                       <div className="flex items-center gap-1.5">
@@ -204,7 +204,7 @@ export function HeroSection() {
                             dark ? "text-gray-500" : "text-gray-400"
                           }`}
                         >
-                          Факт
+                          {copy.hero.fact}
                         </span>
                       </div>
                     </div>
