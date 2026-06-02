@@ -23,7 +23,8 @@ import {
   ReferenceLine,
 } from "recharts";
 import type { UserRole } from "../auth";
-import { getReport, type ReportRow } from "../api";
+import { getReport, type ReportRow, type UserSettings } from "../api";
+import { formatMoney } from "../formatters";
 
 // ── Mock data matching spec: periods YYYY-MM, real ЦФО names, OPEX/CAPEX items ──
 
@@ -86,8 +87,6 @@ const meanAbsDeltaPct = 9.7; // avg |delta_pct| across non-NO_PLAN rows
 const overspendCount = 8;
 const savingTotal = 3420; // тыс. руб
 
-const THRESHOLD = 0.1; // ±10%
-
 // Heatmap raw data: rows = costCenters, cols = items, values = delta_pct
 const heatmapRaw = costCenters.map((_, ccIdx) =>
   items.map((_, itemIdx) => {
@@ -127,7 +126,7 @@ const kpis = [
     title: "Превышения бюджета",
     subtitle: "",
     value: String(overspendCount),
-    detail: `Отклонение свыше ${(THRESHOLD * 100).toFixed(0)}%`,
+    detail: "Отклонение свыше 10%",
     change: "+2 к пред. периоду",
     positive: false,
     icon: AlertTriangle,
@@ -204,21 +203,26 @@ function KPICard({ kpi, index }: { kpi: (typeof kpis)[0]; index: number }) {
   );
 }
 
-function getStatusFromDelta(deltaPct: number): { status: string; color: string } {
-  const abs = Math.abs(deltaPct);
-  if (abs <= THRESHOLD * 100) return { status: "IN_NORM", color: "" };
-  if (deltaPct > 0) return { status: "OVERSPEND", color: "" };
-  return { status: "SAVING", color: "" };
+type DeltaStatus = "IN_NORM" | "OVERSPEND" | "SAVING";
+
+function normalizeThreshold(thresholdPercent: number) {
+  return Number.isFinite(thresholdPercent) ? Math.max(0, thresholdPercent) : 10;
 }
 
-function getHeatmapColor(value: number, isDark: boolean) {
-  const abs = Math.abs(value);
-  // Colors match spec statuses
-  if (abs <= 10) {
+function getStatusFromDelta(deltaPct: number, thresholdPercent = 10): DeltaStatus {
+  const threshold = normalizeThreshold(thresholdPercent);
+  const abs = Math.abs(deltaPct);
+  if (abs <= threshold) return "IN_NORM";
+  if (deltaPct > threshold) return "OVERSPEND";
+  return "SAVING";
+}
+
+function getHeatmapColor(status: DeltaStatus, isDark: boolean) {
+  if (status === "IN_NORM") {
     // IN_NORM — green
     return isDark ? "rgba(16,185,129,0.25)" : "rgba(16,185,129,0.15)";
   }
-  if (value > 10) {
+  if (status === "OVERSPEND") {
     // OVERSPEND — red
     return isDark ? "rgba(239,68,68,0.30)" : "rgba(239,68,68,0.18)";
   }
@@ -226,14 +230,13 @@ function getHeatmapColor(value: number, isDark: boolean) {
   return isDark ? "rgba(99,102,241,0.30)" : "rgba(99,102,241,0.15)";
 }
 
-function getHeatmapTextColor(value: number) {
-  const abs = Math.abs(value);
-  if (abs <= 10) return "#10b981";
-  if (value > 10) return "#ef4444";
+function getHeatmapTextColor(status: DeltaStatus) {
+  if (status === "IN_NORM") return "#10b981";
+  if (status === "OVERSPEND") return "#ef4444";
   return "#6366f1";
 }
 
-function CustomTooltip({ active, payload, label }: any) {
+function CustomTooltip({ active, payload, label, formatCurrency }: any) {
   if (active && payload && payload.length) {
     return (
       <div
@@ -248,7 +251,7 @@ function CustomTooltip({ active, payload, label }: any) {
             <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
             <span className="text-muted-foreground">{entry.name === "plan" ? "План" : "Факт"}:</span>
             <span className="text-foreground" style={{ fontWeight: 500 }}>
-              {(entry.value / 1000000).toFixed(2)}M
+              {formatCurrency(entry.value)}
             </span>
           </div>
         ))}
@@ -262,7 +265,7 @@ function CustomTooltip({ active, payload, label }: any) {
               }}
             >
               {payload[1].value - payload[0].value > 0 ? "+" : ""}
-              {((payload[1].value - payload[0].value) / 1000000).toFixed(2)}M (
+              {formatCurrency(payload[1].value - payload[0].value)} (
               {(((payload[1].value - payload[0].value) / payload[0].value) * 100).toFixed(1)}%)
             </span>
           </div>
@@ -276,9 +279,11 @@ function CustomTooltip({ active, payload, label }: any) {
 interface DashboardProps {
   userRole: UserRole;
   allowedCostCenters: string[];
+  threshold: number;
+  accountSettings: UserSettings;
 }
 
-export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
+export function Dashboard({ userRole, allowedCostCenters, threshold, accountSettings }: DashboardProps) {
   const [isDark, setIsDark] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState("2025-07 — 2026-02");
   const [pinnedPeriod, setPinnedPeriod] = useState<string | null>(null);
@@ -288,6 +293,10 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const managerScoped = userRole === "manager";
   const allowedCostCenterSet = useMemo(() => new Set(allowedCostCenters), [allowedCostCenters]);
+  const formatCurrency = useCallback(
+    (value: number, compact = true) => formatMoney(value, accountSettings, { compact }),
+    [accountSettings],
+  );
   const scopedRows = useMemo(() => {
     if (!managerScoped) return reportRows;
     return reportRows.filter((row) => allowedCostCenterSet.has(row.cc_name));
@@ -337,12 +346,13 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
     );
   }, [costCenters, items, scopedRows]);
   const kpis = useMemo(() => {
-    const withPlan = scopedRows.filter((row) => row.status !== "NO_PLAN");
-    const inNorm = withPlan.filter((row) => row.status === "IN_NORM").length;
+    const withPlan = scopedRows.filter((row) => row.delta_pct !== null);
+    const statusByRow = withPlan.map((row) => getStatusFromDelta((row.delta_pct ?? 0) * 100, threshold));
+    const inNorm = statusByRow.filter((status) => status === "IN_NORM").length;
     const meanAbs = withPlan.length > 0
       ? withPlan.reduce((sum, row) => sum + Math.abs(row.delta_pct ?? 0), 0) / withPlan.length * 100
       : 0;
-    const overspend = scopedRows.filter((row) => row.status === "OVERSPEND").length;
+    const overspend = statusByRow.filter((status) => status === "OVERSPEND").length;
     const saving = scopedRows.filter((row) => row.delta < 0).reduce((sum, row) => sum + Math.abs(row.delta), 0);
     const share = withPlan.length > 0 ? inNorm / withPlan.length : 0;
     return [
@@ -374,7 +384,7 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
         title: "Превышения бюджета",
         subtitle: "",
         value: String(overspend),
-        detail: "Строки со статусом OVERSPEND",
+        detail: `Строки свыше +${threshold}%`,
         change: "live",
         positive: overspend === 0,
         icon: AlertTriangle,
@@ -385,7 +395,7 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
       {
         title: "Общая экономия",
         subtitle: "",
-        value: `${(saving / 1000000).toFixed(1)}M`,
+        value: formatCurrency(saving),
         detail: "Сумма отрицательных отклонений",
         change: "live",
         positive: true,
@@ -395,7 +405,7 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
         border: "border-[#06b6d4]/20",
       },
     ];
-  }, [scopedRows]);
+  }, [formatCurrency, scopedRows, threshold]);
   const visibleHeatmapRows = useMemo(() => {
     const rows = costCenters.map((cc, ccIdx) => ({
       cc,
@@ -440,7 +450,7 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
   };
 
   const loadReport = useCallback((signal?: { ignore: boolean }) => {
-    return getReport({ from: "2025-01", to: "2026-12", threshold: 0.10 })
+    return getReport({ from: "2025-01", to: "2026-12", threshold: threshold / 100 })
       .then((response) => {
         if (!signal?.ignore) {
           setReportRows(response.rows ?? []);
@@ -450,7 +460,7 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
       .catch((error) => {
         if (!signal?.ignore) setLoadError(error instanceof Error ? error.message : "Не удалось загрузить dashboard");
       });
-  }, []);
+  }, [threshold]);
 
   useEffect(() => {
     const signal = { ignore: false };
@@ -623,9 +633,9 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
                 axisLine={false}
                 tickLine={false}
                 tick={{ fontSize: 12, fill: isDark ? "#94a3b8" : "#64748b" }}
-                tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`}
+                tickFormatter={(v) => formatCurrency(Number(v))}
               />
-              <Tooltip content={<CustomTooltip />} cursor={{ stroke: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)", strokeWidth: 1 }} />
+              <Tooltip content={<CustomTooltip formatCurrency={formatCurrency} />} cursor={{ stroke: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)", strokeWidth: 1 }} />
               {pinnedPeriod && (
                 <ReferenceLine
                   x={pinnedPeriod}
@@ -724,7 +734,7 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
                       <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
                       <span className="text-muted-foreground">{entry.name === "plan" ? "План" : "Факт"}:</span>
                       <span className="text-foreground" style={{ fontWeight: 500 }}>
-                        {(entry.value / 1000).toFixed(1)}M
+                        {formatCurrency(entry.value)}
                       </span>
                     </div>
                   ))}
@@ -738,7 +748,7 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
                         }}
                       >
                         {pinnedPayload[1].value - pinnedPayload[0].value > 0 ? "+" : ""}
-                        {((pinnedPayload[1].value - pinnedPayload[0].value) / 1000).toFixed(1)}M (
+                        {formatCurrency(pinnedPayload[1].value - pinnedPayload[0].value)} (
                         {(((pinnedPayload[1].value - pinnedPayload[0].value) / pinnedPayload[0].value) * 100).toFixed(1)}%)
                       </span>
                     </div>
@@ -787,10 +797,10 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
                   {/* Summary pills */}
                   <div className="flex items-center gap-2">
                     <div className="px-3 py-1.5 rounded-lg bg-[#6366f1]/10 text-[12px]" style={{ fontWeight: 500, color: "#6366f1" }}>
-                      План: {((pinnedSummary?.plan ?? pinnedData.plan) / 1000).toFixed(1)}M
+                      План: {formatCurrency(pinnedSummary?.plan ?? pinnedData.plan)}
                     </div>
                     <div className="px-3 py-1.5 rounded-lg bg-[#06b6d4]/10 text-[12px]" style={{ fontWeight: 500, color: "#06b6d4" }}>
-                      Факт: {((pinnedSummary?.fact ?? pinnedData.fact) / 1000).toFixed(1)}M
+                      Факт: {formatCurrency(pinnedSummary?.fact ?? pinnedData.fact)}
                     </div>
                     {(() => {
                       const plan = pinnedSummary?.plan ?? pinnedData.plan;
@@ -803,7 +813,7 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
                           className={`px-3 py-1.5 rounded-lg text-[12px] ${isOver ? "bg-[#ef4444]/10" : "bg-[#10b981]/10"}`}
                           style={{ fontWeight: 500, color: isOver ? "#ef4444" : "#10b981" }}
                         >
-                          {isOver ? "+" : ""}{(delta / 1000).toFixed(1)}M ({isOver ? "+" : ""}{deltaPct.toFixed(1)}%)
+                          {isOver ? "+" : ""}{formatCurrency(delta)} ({isOver ? "+" : ""}{deltaPct.toFixed(1)}%)
                         </div>
                       );
                     })()}
@@ -836,16 +846,16 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
                     {pinnedBreakdown.map((row, i) => {
                       const delta = row.fact - row.plan;
                       const deltaPct = row.plan > 0 ? (delta / row.plan) * 100 : 0;
-                      const absPct = Math.abs(deltaPct);
                       const isOver = delta > 0;
+                      const status = getStatusFromDelta(deltaPct, threshold);
                       let statusLabel = "В норме";
                       let statusColor = "#10b981";
                       let statusBg = "bg-[#10b981]/10";
-                      if (absPct > 10 && isOver) {
+                      if (status === "OVERSPEND") {
                         statusLabel = "Перерасход";
                         statusColor = "#ef4444";
                         statusBg = "bg-[#ef4444]/10";
-                      } else if (absPct > 10 && !isOver) {
+                      } else if (status === "SAVING") {
                         statusLabel = "Экономия";
                         statusColor = "#6366f1";
                         statusBg = "bg-[#6366f1]/10";
@@ -859,10 +869,10 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
                           className="border-t border-border hover:bg-muted/20 transition-colors"
                         >
                           <td className="px-4 py-2.5 text-[13px] text-foreground" style={{ fontWeight: 500 }}>{row.cc}</td>
-                          <td className="px-4 py-2.5 text-[13px] text-foreground text-right tabular-nums">{row.plan.toLocaleString("ru-RU")}</td>
-                          <td className="px-4 py-2.5 text-[13px] text-foreground text-right tabular-nums">{row.fact.toLocaleString("ru-RU")}</td>
+                          <td className="px-4 py-2.5 text-[13px] text-foreground text-right tabular-nums">{formatCurrency(row.plan, false)}</td>
+                          <td className="px-4 py-2.5 text-[13px] text-foreground text-right tabular-nums">{formatCurrency(row.fact, false)}</td>
                           <td className="px-4 py-2.5 text-[13px] text-right tabular-nums" style={{ fontWeight: 500, color: isOver ? "#ef4444" : "#10b981" }}>
-                            {isOver ? "+" : ""}{delta.toLocaleString("ru-RU")}
+                            {isOver ? "+" : ""}{formatCurrency(delta, false)}
                           </td>
                           <td className="px-4 py-2.5 text-[13px] text-right tabular-nums" style={{ fontWeight: 500, color: isOver ? "#ef4444" : "#10b981" }}>
                             {isOver ? "+" : ""}{deltaPct.toFixed(1)}%
@@ -904,6 +914,9 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
             </p>
           </div>
           <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+            <div className="rounded-lg border border-border px-2 py-1 text-foreground/80">
+              Норма: ±{threshold}%
+            </div>
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-3 rounded" style={{ backgroundColor: "rgba(99,102,241,0.25)" }} />
               Экономия
@@ -952,22 +965,26 @@ export function Dashboard({ userRole, allowedCostCenters }: DashboardProps) {
                   <td className="text-[13px] text-foreground pr-4 py-1.5" style={{ fontWeight: 500 }}>
                     {row.cc.name}
                   </td>
-                  {row.values.map((val, itemIdx) => (
-                    <td key={itemIdx} className="px-1 py-1.5">
-                      <motion.div
-                        whileHover={{ scale: 1.08 }}
-                        className="rounded-lg h-10 flex items-center justify-center text-[12px] cursor-default transition-all"
-                        style={{
-                          backgroundColor: getHeatmapColor(val, isDark),
-                          color: getHeatmapTextColor(val),
-                          fontWeight: 500,
-                        }}
-                      >
-                        {val > 0 ? "+" : ""}
-                        {val.toFixed(1)}%
-                      </motion.div>
-                    </td>
-                  ))}
+                  {row.values.map((val, itemIdx) => {
+                    const status = getStatusFromDelta(val, threshold);
+                    return (
+                      <td key={itemIdx} className="px-1 py-1.5">
+                        <motion.div
+                          whileHover={{ scale: 1.08 }}
+                          className="rounded-lg h-10 flex items-center justify-center text-[12px] cursor-default transition-all"
+                          style={{
+                            backgroundColor: getHeatmapColor(status, isDark),
+                            color: getHeatmapTextColor(status),
+                            fontWeight: 500,
+                          }}
+                          title={`Порог нормы: ±${threshold}%`}
+                        >
+                          {val > 0 ? "+" : ""}
+                          {val.toFixed(1)}%
+                        </motion.div>
+                      </td>
+                    );
+                  })}
                 </motion.tr>
               ))}
             </tbody>

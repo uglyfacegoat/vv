@@ -117,9 +117,10 @@ function hydrateNotifications(items: Notification[]) {
 interface NotificationsPanelProps {
   isOpen: boolean;
   onClose: () => void;
+  onUnreadCountChange?: (count: number) => void;
 }
 
-export function NotificationsPanel({ isOpen, onClose }: NotificationsPanelProps) {
+export function NotificationsPanel({ isOpen, onClose, onUnreadCountChange }: NotificationsPanelProps) {
   const [notifications, setNotifications] = useState(initialNotifications);
   const [filter, setFilter] = useState<"all" | "unread">("all");
   const [loaded, setLoaded] = useState(false);
@@ -142,12 +143,17 @@ export function NotificationsPanel({ isOpen, onClose }: NotificationsPanelProps)
   const unreadCount = notifications.filter((n) => !n.read).length;
   const filtered = filter === "unread" ? notifications.filter((n) => !n.read) : notifications;
 
+  useEffect(() => {
+    onUnreadCountChange?.(unreadCount);
+  }, [onUnreadCountChange, unreadCount]);
+
   const markAsRead = (id: string) => {
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
   };
 
   const markAllRead = () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    onUnreadCountChange?.(0);
     toast.success("Все уведомления прочитаны");
   };
 
@@ -158,6 +164,7 @@ export function NotificationsPanel({ isOpen, onClose }: NotificationsPanelProps)
 
   const clearAll = () => {
     setNotifications([]);
+    onUnreadCountChange?.(0);
     toast.success("Все уведомления очищены");
   };
 

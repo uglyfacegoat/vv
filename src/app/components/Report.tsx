@@ -15,7 +15,8 @@ import {
   TrendingDown,
 } from "lucide-react";
 import type { UserRole } from "../auth";
-import { exportReportCsv, getReport } from "../api";
+import { exportReportCsv, getReport, type UserSettings } from "../api";
+import { formatMoney } from "../formatters";
 
 // ── Types matching spec exactly ──
 type Status = "IN_NORM" | "OVERSPEND" | "SAVING" | "NO_PLAN";
@@ -164,23 +165,16 @@ function buildData(threshold: number): ReportRow[] {
 const allCostCenters = [...new Set(rawRows.map((r) => r.cc_name))].sort();
 const allPeriods = [...new Set(rawRows.map((r) => r.period))].sort();
 
-function formatCurrency(val: number) {
-  const abs = Math.abs(val);
-  const sign = val < 0 ? "-" : "";
-  if (abs >= 1000000) return `${sign}${(abs / 1000000).toFixed(2)}M`;
-  if (abs >= 1000) return `${sign}${(abs / 1000).toFixed(0)}K`;
-  return val.toLocaleString("ru-RU");
-}
-
 interface ReportProps {
   threshold: number;
   onThresholdChange: (value: number) => void;
   userRole: UserRole;
   allowedCostCenters: string[];
   externalSearchQuery?: string;
+  accountSettings: UserSettings;
 }
 
-export function Report({ threshold, onThresholdChange, userRole, allowedCostCenters, externalSearchQuery = "" }: ReportProps) {
+export function Report({ threshold, onThresholdChange, userRole, allowedCostCenters, externalSearchQuery = "", accountSettings }: ReportProps) {
   type AggregateView = "items" | "cc" | "type" | "period";
 
   const [periodFrom, setPeriodFrom] = useState(allPeriods[0]);
@@ -221,6 +215,10 @@ export function Report({ threshold, onThresholdChange, userRole, allowedCostCent
   }, [availableCostCenters, managerScoped, selectedCC]);
 
   const thresholdDecimal = threshold / 100;
+  const formatCurrency = useCallback(
+    (value: number) => formatMoney(value, accountSettings, { compact: true }),
+    [accountSettings],
+  );
 
   useEffect(() => {
     setSearchQuery(externalSearchQuery);

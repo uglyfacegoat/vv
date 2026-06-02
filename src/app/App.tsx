@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Toaster, toast } from "sonner";
 import { BrowserRouter, useInRouterContext, useLocation, useNavigate } from "react-router";
@@ -133,6 +133,7 @@ function AppContent() {
   const [collapsed, setCollapsed] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [reportSearchQuery, setReportSearchQuery] = useState("");
@@ -155,6 +156,9 @@ function AppContent() {
     () => (authUser ? getInitials(authUser.name) : "П"),
     [authUser],
   );
+  const handleUnreadNotificationsChange = useCallback((count: number) => {
+    setUnreadNotificationsCount(count);
+  }, []);
   const requestedAuthMode = useMemo(
     () => resolveAuthModeFromPath(location.pathname),
     [location.pathname],
@@ -516,11 +520,13 @@ function AppContent() {
                   }`}
                 >
                   <Bell className="w-[18px] h-[18px]" />
-                  <motion.span
-                    animate={{ scale: [1, 1.3, 1] }}
-                    transition={{ repeat: Infinity, duration: 2, repeatDelay: 3 }}
-                    className="absolute top-1.5 right-1.5 w-2 h-2 bg-[#ef4444] rounded-full"
-                  />
+                  {unreadNotificationsCount > 0 && (
+                    <motion.span
+                      animate={{ scale: [1, 1.3, 1] }}
+                      transition={{ repeat: Infinity, duration: 2, repeatDelay: 3 }}
+                      className="absolute top-1.5 right-1.5 w-2 h-2 bg-[#ef4444] rounded-full"
+                    />
+                  )}
                 </motion.button>
               </div>
 
@@ -607,7 +613,11 @@ function AppContent() {
           </motion.header>
 
           {/* Notifications panel */}
-          <NotificationsPanel isOpen={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
+          <NotificationsPanel
+            isOpen={notificationsOpen}
+            onClose={() => setNotificationsOpen(false)}
+            onUnreadCountChange={handleUnreadNotificationsChange}
+          />
 
           {/* Page content */}
           <main ref={mainRef} className="flex-1 overflow-auto p-6">
@@ -623,6 +633,8 @@ function AppContent() {
                   <Dashboard
                     userRole={authUser!.role}
                     allowedCostCenters={authUser!.allowedCostCenters}
+                    threshold={threshold}
+                    accountSettings={accountSettings}
                   />
                 )}
                 {page === "report" && (
@@ -632,6 +644,7 @@ function AppContent() {
                     userRole={authUser!.role}
                     allowedCostCenters={authUser!.allowedCostCenters}
                     externalSearchQuery={reportSearchQuery}
+                    accountSettings={accountSettings}
                   />
                 )}
                 {page === "import" && <Import />}

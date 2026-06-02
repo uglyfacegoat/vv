@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { toast } from "sonner";
 import {
@@ -42,6 +42,7 @@ import {
   type ImportLogEntry,
   type UserSettings,
 } from "../api";
+import { formatMoney } from "../formatters";
 import type { UserRole } from "../auth";
 
 interface SettingSection {
@@ -147,8 +148,39 @@ export function SettingsPage({
   const [dataSearch, setDataSearch] = useState("");
   const [dataDraft, setDataDraft] = useState({ period: "", cc_id: "", item_id: "", amount: "" });
   const [importLogs, setImportLogs] = useState<ImportLogEntry[]>([]);
+  const formatCurrency = useCallback(
+    (value: number) => formatMoney(value, { number_format: numberFormat, currency }),
+    [currency, numberFormat],
+  );
   const thresholdPercent = thresholdPosition(threshold);
   const defaultThresholdPercent = thresholdPosition(MAIN_THRESHOLD_DEFAULT);
+
+  const applyDisplaySettings = useCallback((next: Partial<Pick<UserSettings, "number_format" | "currency">>) => {
+    onAccountSettingsChange({
+      ...accountSettings,
+      threshold,
+      overspend_threshold: Math.min(100, Math.max(1, overspendThreshold || 1)),
+      saving_threshold: Math.min(100, Math.max(1, savingThreshold || 1)),
+      number_format: next.number_format ?? numberFormat,
+      currency: next.currency ?? currency,
+      notify_import: notifyImport,
+      notify_overspend: notifyOverspend,
+      notify_weekly: notifyWeekly,
+      email_notify: emailNotify,
+    });
+  }, [
+    accountSettings,
+    currency,
+    emailNotify,
+    notifyImport,
+    notifyOverspend,
+    notifyWeekly,
+    numberFormat,
+    onAccountSettingsChange,
+    overspendThreshold,
+    savingThreshold,
+    threshold,
+  ]);
 
   const makeId = (prefix: string) => `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 
@@ -411,11 +443,11 @@ export function SettingsPage({
     const settings = collectSettings();
     setSaving(true);
     try {
-      const [account] = await Promise.all([
+      const [, savedThreshold] = await Promise.all([
         updateAccountSettings(settings),
         saveThresholdSetting(settings.threshold),
       ]);
-      onAccountSettingsChange(account.user.settings ?? settings);
+      onAccountSettingsChange({ ...settings, threshold: savedThreshold });
       toast.success("Настройки сохранены", {
         description: `Порог: +-${settings.threshold}%, формат: ${numberFormat === "ru" ? "1 234,56" : "1,234.56"}`,
       });
@@ -1245,7 +1277,9 @@ export function SettingsPage({
                       <button
                         key={fmt.key}
                         onClick={() => {
-                          setNumberFormat(fmt.key as "ru" | "en");
+                          const nextFormat = fmt.key as "ru" | "en";
+                          setNumberFormat(nextFormat);
+                          applyDisplaySettings({ number_format: nextFormat });
                           toast.success(`Формат: ${fmt.label}`, { description: `Пример: ${fmt.example}` });
                         }}
                         className={`rounded-xl border p-4 text-left transition-all ${
@@ -1277,6 +1311,7 @@ export function SettingsPage({
                         key={c.key}
                         onClick={() => {
                           setCurrency(c.key);
+                          applyDisplaySettings({ currency: c.key });
                           toast(`Валюта: ${c.key}`, { description: `Символ: ${c.symbol}` });
                         }}
                         className={`rounded-xl border p-3 text-center transition-all ${
@@ -1384,7 +1419,7 @@ export function SettingsPage({
                             <td className="px-3 py-2">{entry.cc_name} <span className="text-muted-foreground">#{entry.cc_id}</span></td>
                             <td className="px-3 py-2">{entry.item_name} <span className="text-muted-foreground">#{entry.item_id}</span></td>
                             <td className="px-3 py-2">{entry.type}</td>
-                            <td className="px-3 py-2 tabular-nums">{entry.amount.toLocaleString("ru-RU")}</td>
+                            <td className="px-3 py-2 tabular-nums">{formatCurrency(entry.amount)}</td>
                             <td className="px-3 py-2 text-right">
                               <button
                                 onClick={() => setDataDraft({ period: entry.period, cc_id: String(entry.cc_id), item_id: String(entry.item_id), amount: String(entry.amount) })}
